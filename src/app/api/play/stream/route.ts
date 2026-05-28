@@ -1,4 +1,4 @@
-import { subscribe, type GameEvent } from "@/lib/multiplayer";
+import { registerSubscriber, type GameEvent } from "@/lib/multiplayer";
 import { getCurrentMember } from "@/server/auth";
 
 export const dynamic = "force-dynamic";
@@ -10,18 +10,44 @@ export async function GET(request: Request) {
   }
 
   const encoder = new TextEncoder();
-  let unsubscribe: (() => void) | null = null;
-  let pingTimer: ReturnType<typeof setInterval> | null = null;
+  let cleanup = () => {
+    /* replaced below */
+  };
 
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
       let closed = false;
-      const safeEnqueue = (chunk: Uint8Array) => {
+      let pingTimer: ReturnType<typeof setInterval> | null = null;
+      let unsubscribe: (() => void) | null = null;
+
+      const realCleanup = () => {
         if (closed) return;
+        closed = true;
+        if (pingTimer) {
+          clearInterval(pingTimer);
+          pingTimer = null;
+        }
+        if (unsubscribe) {
+          unsubscribe();
+          unsubscribe = null;
+        }
+        request.signal.removeEventListener("abort", realCleanup);
+        try {
+          controller.close();
+        } catch {
+          /* ignore */
+        }
+      };
+      cleanup = realCleanup;
+
+      const safeEnqueue = (chunk: Uint8Array): boolean => {
+        if (closed) return false;
         try {
           controller.enqueue(chunk);
+          return true;
         } catch {
-          closed = true;
+          realCleanup();
+          return false;
         }
       };
 
@@ -29,27 +55,24 @@ export async function GET(request: Request) {
         safeEnqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
       };
 
+      const reg = registerSubscriber(me.groupId, me.memberId, send);
+      unsubscribe = reg.unsubscribe;
+
+      const ok = safeEnqueue(
+        encoder.encode(`data: ${JSON.stringify(reg.initialEvent)}\n\n`),
+      );
+      if (!ok) {
+        return;
+      }
+
       pingTimer = setInterval(() => {
         safeEnqueue(encoder.encode(`: ping\n\n`));
       }, 15000);
 
-      unsubscribe = subscribe(me.groupId, me.memberId, send);
-
-      const onAbort = () => {
-        closed = true;
-        if (pingTimer) clearInterval(pingTimer);
-        if (unsubscribe) unsubscribe();
-        try {
-          controller.close();
-        } catch {
-          /* ignore */
-        }
-      };
-      request.signal.addEventListener("abort", onAbort);
+      request.signal.addEventListener("abort", realCleanup);
     },
     cancel() {
-      if (pingTimer) clearInterval(pingTimer);
-      if (unsubscribe) unsubscribe();
+      cleanup();
     },
   });
 

@@ -1,7 +1,7 @@
 import { SignJWT, jwtVerify } from "jose";
 
 const SESSION_COOKIE = "ws_session";
-const SESSION_TTL_SEC = 60 * 60 * 24 * 30;
+const SESSION_TTL_SEC = 60 * 60 * 24;
 const MIN_SECRET_LEN = 32;
 const MIN_UNIQUE_CHARS = 8;
 const ISSUER = "workspace-app";

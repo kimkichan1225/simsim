@@ -8,8 +8,8 @@ import { claimWord } from "@/lib/multiplayer";
 import { getCurrentMember } from "@/server/auth";
 
 const RATE_PLAY_CLAIM: RateLimitConfig = {
-  capacity: 60,
-  refillPerSec: 4,
+  capacity: 4,
+  refillPerSec: 1,
 };
 
 const Body = z.object({

@@ -32,6 +32,7 @@ type Snapshot = {
   status: "running" | "ended";
   participants: Participant[];
   activeWords: ActiveWord[];
+  results?: GameResult[];
 };
 
 type ServerEvent =
@@ -103,7 +104,10 @@ export function MultiplayerGame({
             endsAt: ev.endsAt,
             participants: ev.participants,
             activeWords: ev.activeWords,
-            results: ev.status === "ended" ? prev.results : null,
+            results:
+              ev.status === "ended"
+                ? (ev.results ?? prev.results)
+                : null,
           };
         }
         case "no_game":

@@ -111,8 +111,13 @@ export const WORD_POOL: Word[] = [
   ...EN_LONG.map((t) => ({ text: t, lang: "en" as const, points: pointsFor(t, "en") })),
 ];
 
-export function rollWord(exclude: Set<string>): Word | null {
-  const candidates = WORD_POOL.filter((w) => !exclude.has(w.text));
+export function rollWord(
+  exclude: Set<string>,
+  conflictCheck?: (text: string) => boolean,
+): Word | null {
+  const candidates = WORD_POOL.filter(
+    (w) => !exclude.has(w.text) && !conflictCheck?.(w.text),
+  );
   if (candidates.length === 0) return null;
   return candidates[Math.floor(Math.random() * candidates.length)];
 }

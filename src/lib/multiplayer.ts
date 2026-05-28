@@ -26,6 +26,7 @@ export type GameSnapshot = {
   status: GameStatus;
   participants: Participant[];
   activeWords: ActiveWord[];
+  results?: GameResult[];
 };
 
 export type GameEvent =
@@ -53,6 +54,7 @@ type ActiveGame = {
   participants: Map<string, Participant>;
   activeWords: Map<string, ActiveWord>;
   usedTexts: Set<string>;
+  results: GameResult[] | null;
   endTimer: ReturnType<typeof setTimeout> | null;
   onEnded?: (results: GameResult[], game: ActiveGame) => Promise<void> | void;
 };
@@ -79,9 +81,23 @@ function broadcastToGroup(groupId: string, event: GameEvent): void {
   }
 }
 
+function hasPrefixConflict(
+  text: string,
+  actives: Map<string, ActiveWord>,
+): boolean {
+  for (const w of actives.values()) {
+    if (text === w.text) return true;
+    if (text.startsWith(w.text)) return true;
+    if (w.text.startsWith(text)) return true;
+  }
+  return false;
+}
+
 function ensureActiveWords(game: ActiveGame): void {
   while (game.activeWords.size < TARGET_WORD_COUNT) {
-    const w = rollWord(game.usedTexts);
+    const w = rollWord(game.usedTexts, (text) =>
+      hasPrefixConflict(text, game.activeWords),
+    );
     if (!w) break;
     const word: ActiveWord = { id: newId(6), ...w };
     game.activeWords.set(word.id, word);
@@ -94,7 +110,7 @@ export function getActiveGame(groupId: string): ActiveGame | null {
   return games.get(groupId) ?? null;
 }
 
-function snapshotOf(game: ActiveGame): GameSnapshot {
+export function snapshotOf(game: ActiveGame): GameSnapshot {
   return {
     type: "snapshot",
     gameId: game.gameId,
@@ -103,6 +119,7 @@ function snapshotOf(game: ActiveGame): GameSnapshot {
     status: game.status,
     participants: [...game.participants.values()],
     activeWords: [...game.activeWords.values()],
+    results: game.results ?? undefined,
   };
 }
 
@@ -128,7 +145,13 @@ export function startOrJoinGame(input: {
     }
     return { game: existing, created: false };
   }
-  if (existing) cleanupGame(existing);
+  if (existing) {
+    if (existing.status === "running") {
+      void endGame(existing);
+    } else {
+      cleanupGame(existing);
+    }
+  }
   const now = Date.now();
   const game: ActiveGame = {
     gameId: newId(9),
@@ -148,6 +171,7 @@ export function startOrJoinGame(input: {
     ]),
     activeWords: new Map(),
     usedTexts: new Set(),
+    results: null,
     endTimer: null,
     onEnded: input.onEnded,
   };
@@ -160,11 +184,11 @@ export function startOrJoinGame(input: {
   return { game, created: true };
 }
 
-export function subscribe(
+export function registerSubscriber(
   groupId: string,
   memberId: string,
   fn: Subscriber,
-): () => void {
+): { unsubscribe: () => void; initialEvent: GameEvent } {
   let bucket = groupSubscribers.get(groupId);
   if (!bucket) {
     bucket = new Map();
@@ -173,16 +197,24 @@ export function subscribe(
   bucket.set(memberId, fn);
 
   const game = games.get(groupId);
-  if (game) fn(snapshotOf(game));
-  else fn({ type: "no_game" });
+  const initialEvent: GameEvent = game ? snapshotOf(game) : { type: "no_game" };
 
-  return () => {
+  const unsubscribe = () => {
     const b = groupSubscribers.get(groupId);
     if (b && b.get(memberId) === fn) {
       b.delete(memberId);
       if (b.size === 0) groupSubscribers.delete(groupId);
     }
   };
+
+  return { unsubscribe, initialEvent };
+}
+
+export function removeSubscriber(groupId: string, memberId: string): void {
+  const b = groupSubscribers.get(groupId);
+  if (!b) return;
+  b.delete(memberId);
+  if (b.size === 0) groupSubscribers.delete(groupId);
 }
 
 export type ClaimResult =
@@ -204,6 +236,10 @@ export function claimWord(input: {
 }): ClaimResult {
   const game = games.get(input.groupId);
   if (!game || game.status !== "running") {
+    return { ok: false, reason: "not_running" };
+  }
+  if (Date.now() >= game.endsAt) {
+    void endGame(game);
     return { ok: false, reason: "not_running" };
   }
   const participant = game.participants.get(input.memberId);
@@ -247,6 +283,8 @@ export async function endGame(game: ActiveGame): Promise<void> {
       score: p.score,
       rank: i + 1,
     }));
+  game.results = results;
+  game.activeWords.clear();
 
   broadcastToGroup(game.groupId, { type: "game_ended", results });
 
