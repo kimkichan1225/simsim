@@ -1,0 +1,69 @@
+// 위장 게임 허브 — 그룹, 멤버, 게임 기록, 활동 피드
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Group {
+  id         String   @id @default(cuid())
+  name       String
+  inviteCode String   @unique
+  createdAt  DateTime @default(now())
+
+  members      Member[]
+  activityFeed ActivityFeed[]
+}
+
+model Member {
+  id            String   @id @default(cuid())
+  groupId       String
+  nickname      String
+  nicknameKey   String
+  sessionSecret String
+  joinedAt      DateTime @default(now())
+
+  group        Group          @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  gameRuns     GameRun[]
+  activityFeed ActivityFeed[]
+
+  @@unique([groupId, nicknameKey])
+  @@index([groupId])
+}
+
+model GameRun {
+  id             String   @id @default(cuid())
+  memberId       String
+  mode           String
+  language       String
+  wpm            Float
+  accuracy       Float
+  durationSec    Int
+  charsCorrect   Int
+  charsIncorrect Int
+  startedAt      DateTime
+  finishedAt     DateTime @default(now())
+  serverVerified Boolean  @default(false)
+
+  member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@index([memberId, finishedAt])
+}
+
+model ActivityFeed {
+  id        String   @id @default(cuid())
+  groupId   String
+  memberId  String
+  kind      String
+  payload   String
+  createdAt DateTime @default(now())
+
+  group  Group  @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@index([groupId, createdAt])
+}

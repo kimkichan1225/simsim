@@ -1,26 +1,41 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --sheet-bg: #ffffff;
+  --sheet-fg: #202124;
+  --sheet-muted: #5f6368;
+  --sheet-border: #e0e0e0;
+  --sheet-toolbar-bg: #f9fbfd;
+  --sheet-cell-border: #d6d9dc;
+  --sheet-header-bg: #f8f9fa;
+  --sheet-active: #1a73e8;
+  --sheet-active-bg: #e8f0fe;
+  --sheet-green: #0f9d58;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-sheet-bg: var(--sheet-bg);
+  --color-sheet-fg: var(--sheet-fg);
+  --color-sheet-muted: var(--sheet-muted);
+  --color-sheet-border: var(--sheet-border);
+  --color-sheet-toolbar: var(--sheet-toolbar-bg);
+  --color-sheet-cell: var(--sheet-cell-border);
+  --color-sheet-header: var(--sheet-header-bg);
+  --color-sheet-active: var(--sheet-active);
+  --color-sheet-active-bg: var(--sheet-active-bg);
+  --color-sheet-green: var(--sheet-green);
+  --font-sans: var(--font-sans-en), var(--font-sans-kr), "Apple SD Gothic Neo",
+    "Malgun Gothic", system-ui, sans-serif;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
+html,
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--sheet-bg);
+  color: var(--sheet-fg);
+  font-family: var(--font-sans);
+}
+
+* {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
