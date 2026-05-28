@@ -8,6 +8,7 @@ import {
   FolderOpen,
   History,
   Lock,
+  LogOut,
   MessageSquare,
   MoreVertical,
   Plus,
@@ -44,6 +45,7 @@ type Props = {
   activeTabId: string;
   onTabChange: (id: string) => void;
   rightUser?: ReactNode;
+  onLeave?: () => void;
   children: ReactNode;
 };
 
@@ -56,6 +58,7 @@ export function SheetShell({
   activeTabId,
   onTabChange,
   rightUser,
+  onLeave,
   children,
 }: Props) {
   useEffect(() => {
@@ -71,7 +74,7 @@ export function SheetShell({
 
   return (
     <div className="flex flex-col h-full min-h-screen">
-      <HeaderBar title={title} rightUser={rightUser} />
+      <HeaderBar title={title} rightUser={rightUser} onLeave={onLeave} />
       <MenuBar />
       <Toolbar />
       <FormulaBar />
@@ -81,7 +84,15 @@ export function SheetShell({
   );
 }
 
-function HeaderBar({ title, rightUser }: { title: string; rightUser?: ReactNode }) {
+function HeaderBar({
+  title,
+  rightUser,
+  onLeave,
+}: {
+  title: string;
+  rightUser?: ReactNode;
+  onLeave?: () => void;
+}) {
   return (
     <header className="flex items-center gap-2 px-3 py-1.5 border-b border-[var(--sheet-border)]">
       <a
@@ -140,6 +151,17 @@ function HeaderBar({ title, rightUser }: { title: string; rightUser?: ReactNode 
         공유
       </button>
       {rightUser}
+      {onLeave && (
+        <button
+          type="button"
+          onClick={onLeave}
+          title="워크스페이스 나가기"
+          aria-label="워크스페이스 나가기"
+          className="ml-1 w-8 h-8 rounded-full grid place-items-center text-[var(--sheet-muted)] hover:bg-black/5"
+        >
+          <LogOut size={16} />
+        </button>
+      )}
     </header>
   );
 }

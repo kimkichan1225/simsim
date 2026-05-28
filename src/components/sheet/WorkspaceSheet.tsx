@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useState } from "react";
+import { useRouter } from "next/navigation";
 import { ActivityTab } from "@/components/activity/ActivityTab";
 import { MultiplayerGame } from "@/components/game/MultiplayerGame";
 import { LeaderboardTab } from "@/components/leaderboard/LeaderboardTab";
@@ -19,8 +20,18 @@ type Props = {
 };
 
 export function WorkspaceSheet({ groupName, nickname, memberId }: Props) {
+  const router = useRouter();
   const [activeTabId, setActiveTabId] = useState(TABS[0].id);
   const [refreshKey] = useState(0);
+
+  const onLeave = useCallback(async () => {
+    try {
+      await fetch("/api/session/leave", { method: "POST" });
+    } catch {
+      /* ignore */
+    }
+    router.refresh();
+  }, [router]);
 
   return (
     <SheetShell
@@ -28,6 +39,7 @@ export function WorkspaceSheet({ groupName, nickname, memberId }: Props) {
       tabs={TABS}
       activeTabId={activeTabId}
       onTabChange={setActiveTabId}
+      onLeave={onLeave}
       rightUser={
         <div
           className="w-8 h-8 rounded-full bg-[var(--sheet-active)] text-white grid place-items-center text-[13px] font-medium ml-1"
