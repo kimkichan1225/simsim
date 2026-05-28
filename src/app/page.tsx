@@ -8,7 +8,13 @@ export default async function Home() {
   const me = await getCurrentMember();
 
   if (me) {
-    return <WorkspaceSheet groupName={me.groupName} nickname={me.nickname} />;
+    return (
+      <WorkspaceSheet
+        groupName={me.groupName}
+        nickname={me.nickname}
+        memberId={me.memberId}
+      />
+    );
   }
 
   return (

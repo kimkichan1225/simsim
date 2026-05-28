@@ -16,11 +16,11 @@ export async function GET() {
       select: { id: true, nickname: true },
       take: MAX_ROWS,
     }),
-    prisma.gameRun.groupBy({
+    prisma.matchResult.groupBy({
       by: ["memberId"],
-      where: { member: { groupId: me.groupId } },
-      _max: { wpm: true, finishedAt: true },
-      _avg: { accuracy: true },
+      where: { groupId: me.groupId },
+      _sum: { score: true },
+      _max: { score: true, endedAt: true },
       _count: { _all: true },
     }),
   ]);
@@ -33,25 +33,24 @@ export async function GET() {
       return {
         memberId: m.id,
         nickname: m.nickname,
-        bestWpm: null,
-        avgAccuracy: null,
-        runs: 0,
+        totalScore: 0,
+        bestRound: null,
+        matches: 0,
         lastPlayedAt: null,
       };
     }
     return {
       memberId: m.id,
       nickname: m.nickname,
-      bestWpm: a._max.wpm != null ? Number(a._max.wpm.toFixed(1)) : null,
-      avgAccuracy:
-        a._avg.accuracy != null ? Number(a._avg.accuracy.toFixed(3)) : null,
-      runs: a._count._all,
+      totalScore: a._sum.score ?? 0,
+      bestRound: a._max.score ?? null,
+      matches: a._count._all,
       lastPlayedAt:
-        a._max.finishedAt != null ? a._max.finishedAt.toISOString() : null,
+        a._max.endedAt != null ? a._max.endedAt.toISOString() : null,
     };
   });
 
-  rows.sort((a, b) => (b.bestWpm ?? -1) - (a.bestWpm ?? -1));
+  rows.sort((a, b) => b.totalScore - a.totalScore);
 
   return NextResponse.json({ rows });
 }

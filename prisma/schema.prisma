@@ -17,6 +17,7 @@ model Group {
 
   members      Member[]
   activityFeed ActivityFeed[]
+  matchResults MatchResult[]
 }
 
 model Member {
@@ -27,9 +28,10 @@ model Member {
   sessionSecret String
   joinedAt      DateTime @default(now())
 
-  group        Group          @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  gameRuns     GameRun[]
-  activityFeed ActivityFeed[]
+  group         Group          @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  gameRuns      GameRun[]
+  activityFeed  ActivityFeed[]
+  matchResults  MatchResult[]
 
   @@unique([groupId, nicknameKey])
   @@index([groupId])
@@ -66,4 +68,20 @@ model ActivityFeed {
   member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
 
   @@index([groupId, createdAt])
+}
+
+model MatchResult {
+  id                String   @id @default(cuid())
+  memberId          String
+  groupId           String
+  score             Int
+  rank              Int
+  totalParticipants Int
+  endedAt           DateTime @default(now())
+
+  member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  group  Group  @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@index([memberId])
+  @@index([groupId, endedAt])
 }

@@ -130,14 +130,14 @@ function Cell({
 
 function describe(row: Row): string {
   if (row.kind === "joined") return "그룹에 입장";
-  if (row.kind === "game_result") {
+  if (row.kind === "match_result") {
     const p = row.payload as
-      | { wpm?: number; accuracy?: number; durationSec?: number }
+      | { topNickname?: string; topScore?: number; participants?: number }
       | null;
-    if (!p) return "게임 완료";
-    return `타이핑 완료: WPM ${p.wpm ?? "-"} / 정확도 ${
-      p.accuracy != null ? Math.round(p.accuracy * 100) + "%" : "-"
-    } / ${p.durationSec ?? "-"}초`;
+    if (!p) return "타이핑 매치 종료";
+    return `타이핑 매치 종료: ${p.topNickname ?? "-"} 1위 (${
+      p.topScore ?? 0
+    }점, ${p.participants ?? 0}명 참가)`;
   }
   return row.kind;
 }

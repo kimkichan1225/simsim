@@ -5,18 +5,18 @@ import { useEffect, useState } from "react";
 type Row = {
   memberId: string;
   nickname: string;
-  bestWpm: number | null;
-  avgAccuracy: number | null;
-  runs: number;
+  totalScore: number;
+  bestRound: number | null;
+  matches: number;
   lastPlayedAt: string | null;
 };
 
 const COLS = [
   { label: "닉네임", width: 160 },
-  { label: "최고 WPM", width: 110 },
-  { label: "평균 정확도", width: 110 },
-  { label: "시도", width: 80 },
-  { label: "최근 플레이", width: 200 },
+  { label: "총 점수", width: 110 },
+  { label: "최고 한 판", width: 110 },
+  { label: "참가", width: 80 },
+  { label: "최근 참가", width: 200 },
 ];
 
 const COL_LETTERS = ["A", "B", "C", "D", "E"];
@@ -97,15 +97,13 @@ export function LeaderboardTab({ refreshKey }: { refreshKey: number }) {
           </div>
           <Cell width={COLS[0].width}>{row.nickname}</Cell>
           <Cell width={COLS[1].width} align="right">
-            {row.bestWpm == null ? "-" : row.bestWpm.toFixed(1)}
+            {row.totalScore}
           </Cell>
           <Cell width={COLS[2].width} align="right">
-            {row.avgAccuracy == null
-              ? "-"
-              : `${Math.round(row.avgAccuracy * 100)}%`}
+            {row.bestRound == null ? "-" : row.bestRound}
           </Cell>
           <Cell width={COLS[3].width} align="right">
-            {row.runs}
+            {row.matches}
           </Cell>
           <Cell width={COLS[4].width}>
             {row.lastPlayedAt ? formatRelative(row.lastPlayedAt) : "-"}
@@ -127,7 +125,10 @@ function Cell({
 }) {
   return (
     <div
-      style={{ width, justifyContent: align === "right" ? "flex-end" : "flex-start" }}
+      style={{
+        width,
+        justifyContent: align === "right" ? "flex-end" : "flex-start",
+      }}
       className="h-[22px] border-b border-r border-[var(--sheet-cell-border)] px-2 text-[12px] flex items-center text-[var(--sheet-fg)] tabular-nums"
     >
       {children}
