@@ -151,13 +151,7 @@ function HeaderBar({
       >
         <Video size={16} />
       </button>
-      <button
-        type="button"
-        className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-[#c2e7ff] text-[#001d35] text-[14px] font-medium cursor-default"
-      >
-        <Lock size={14} />
-        공유
-      </button>
+      <ShareButton />
       {rightUser}
       {onLeave && (
         <button
@@ -243,15 +237,14 @@ function ShareButton() {
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="w-7 h-7 rounded grid place-items-center text-[var(--sheet-fg)] hover:bg-black/5"
-        aria-label="공유"
-        title="공유"
+        className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-[#c2e7ff] text-[#001d35] text-[14px] font-medium hover:brightness-95"
       >
-        <Share2 size={16} />
+        <Lock size={14} />
+        공유
       </button>
 
       {open && (
-        <div className="absolute z-30 top-9 left-0 w-[320px] bg-white rounded-lg shadow-xl border border-[var(--sheet-border)] p-4 text-[var(--sheet-fg)] cursor-default">
+        <div className="absolute z-30 top-11 right-0 w-[320px] bg-white rounded-lg shadow-xl border border-[var(--sheet-border)] p-4 text-[var(--sheet-fg)] cursor-default">
           <div className="text-[15px] font-medium mb-3">
             {info ? `"${info.groupName}" 공유` : "공유"}
           </div>
@@ -397,7 +390,9 @@ function Toolbar() {
       <Btn>
         <ArrowLeftRight size={16} />
       </Btn>
-      <ShareButton />
+      <Btn>
+        <Share2 size={16} />
+      </Btn>
       <div className="flex-1" />
       <Btn>
         <MoreVertical size={16} />
