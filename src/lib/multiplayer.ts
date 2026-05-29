@@ -217,6 +217,16 @@ export function removeSubscriber(groupId: string, memberId: string): void {
   if (b.size === 0) groupSubscribers.delete(groupId);
 }
 
+// 방이 폭파될 때 인메모리 게임/타이머/구독 상태를 모두 정리한다.
+export function destroyGroup(groupId: string): void {
+  const game = games.get(groupId);
+  if (game) {
+    cleanupGame(game);
+    games.delete(groupId);
+  }
+  groupSubscribers.delete(groupId);
+}
+
 export type ClaimResult =
   | { ok: true; points: number; newScore: number }
   | {

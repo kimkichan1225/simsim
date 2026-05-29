@@ -7,6 +7,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { useRouter } from "next/navigation";
 import {
   ArrowLeftRight,
   Check,
@@ -26,6 +27,7 @@ import {
   Share2,
   Sigma,
   Star,
+  Trash2,
   Undo2,
   Video,
 } from "lucide-react";
@@ -175,15 +177,21 @@ function MenuBar() {
 type GroupInfo = {
   inviteCode: string;
   groupName: string;
+  isOwner: boolean;
 };
 
 // 툴바의 공유 버튼: 누르면 시트 코드와 초대 링크를 보여주고 복사할 수 있는 팝업을 연다.
+// 방장(생성자)에게는 방 폭파 버튼도 노출한다.
 function ShareButton() {
+  const router = useRouter();
   const [open, setOpen] = useState(false);
   const [info, setInfo] = useState<GroupInfo | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
   const [copied, setCopied] = useState<"code" | "link" | null>(null);
+  const [confirmDestroy, setConfirmDestroy] = useState(false);
+  const [destroying, setDestroying] = useState(false);
+  const [destroyError, setDestroyError] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
 
   // 팝업이 열릴 때 그룹 정보를 한 번만 불러온다.
@@ -198,16 +206,23 @@ function ShareButton() {
       .finally(() => setLoading(false));
   }, [open, info, loading]);
 
+  // 팝업을 닫으면서 폭파 확인 단계도 초기화한다.
+  function close() {
+    setOpen(false);
+    setConfirmDestroy(false);
+    setDestroyError(false);
+  }
+
   // 바깥 클릭/ESC로 팝업 닫기.
   useEffect(() => {
     if (!open) return;
     function onDown(e: MouseEvent) {
       if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
-        setOpen(false);
+        close();
       }
     }
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") setOpen(false);
+      if (e.key === "Escape") close();
     }
     window.addEventListener("mousedown", onDown);
     window.addEventListener("keydown", onKey);
@@ -232,11 +247,25 @@ function ShareButton() {
     }
   }
 
+  // 방 폭파: 성공하면 세션이 정리되므로 새로고침하면 입장 화면으로 돌아간다.
+  async function destroy() {
+    setDestroying(true);
+    setDestroyError(false);
+    try {
+      const res = await fetch("/api/group/destroy", { method: "POST" });
+      if (!res.ok) throw new Error("destroy_failed");
+      router.refresh();
+    } catch {
+      setDestroyError(true);
+      setDestroying(false);
+    }
+  }
+
   return (
     <div ref={wrapRef} className="relative">
       <button
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => (open ? close() : setOpen(true))}
         className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-[#c2e7ff] text-[#001d35] text-[14px] font-medium hover:brightness-95"
       >
         <Lock size={14} />
@@ -276,6 +305,50 @@ function ShareButton() {
                 copied={copied === "link"}
                 onCopy={() => copy(inviteLink, "link")}
               />
+
+              {info.isOwner && (
+                <div className="mt-1 pt-3 border-t border-[var(--sheet-border)]">
+                  {!confirmDestroy ? (
+                    <button
+                      type="button"
+                      onClick={() => setConfirmDestroy(true)}
+                      className="flex items-center gap-1.5 text-[13px] text-[#d93025] hover:underline"
+                    >
+                      <Trash2 size={14} />방 폭파
+                    </button>
+                  ) : (
+                    <div className="flex flex-col gap-2">
+                      <div className="text-[13px] text-[var(--sheet-fg)]">
+                        정말 이 방을 폭파할까요? 모든 멤버와 기록이 삭제되며
+                        되돌릴 수 없어요.
+                      </div>
+                      {destroyError && (
+                        <div className="text-[12px] text-[#d93025]">
+                          폭파에 실패했어요. 잠시 후 다시 시도해주세요.
+                        </div>
+                      )}
+                      <div className="flex justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setConfirmDestroy(false)}
+                          disabled={destroying}
+                          className="px-3 py-1.5 rounded text-[13px] hover:bg-black/5 disabled:opacity-60"
+                        >
+                          취소
+                        </button>
+                        <button
+                          type="button"
+                          onClick={destroy}
+                          disabled={destroying}
+                          className="px-3 py-1.5 rounded text-[13px] font-medium bg-[#d93025] text-white hover:brightness-95 disabled:opacity-60"
+                        >
+                          {destroying ? "폭파 중..." : "폭파하기"}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
         </div>

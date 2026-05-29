@@ -52,6 +52,20 @@ export async function getCurrentMember(): Promise<CurrentMember | null> {
   };
 }
 
+// 방장 = 그룹에 가장 먼저 가입한 멤버(=생성자)로 간주한다.
+// 별도의 방장 컬럼 없이 joinedAt 순서로 판별한다.
+export async function isGroupOwner(
+  groupId: string,
+  memberId: string,
+): Promise<boolean> {
+  const first = await prisma.member.findFirst({
+    where: { groupId },
+    orderBy: [{ joinedAt: "asc" }, { id: "asc" }],
+    select: { id: true },
+  });
+  return first?.id === memberId;
+}
+
 export async function issueSessionCookie(input: {
   memberId: string;
   groupId: string;
