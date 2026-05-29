@@ -70,3 +70,10 @@ export async function clearSessionCookie(): Promise<void> {
   const jar = await cookies();
   jar.set({ ...sessionCookieOptions, value: "", maxAge: 0 });
 }
+
+export async function rotateMemberSessionSecret(memberId: string): Promise<void> {
+  await prisma.member.update({
+    where: { id: memberId },
+    data: { sessionSecret: generateSessionSecret() },
+  });
+}
