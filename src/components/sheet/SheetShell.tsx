@@ -1,10 +1,18 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   ArrowLeftRight,
+  Check,
   ChevronDown,
   Cloud,
+  Copy,
   FolderOpen,
   History,
   Lock,
@@ -170,6 +178,164 @@ function MenuBar() {
   return null;
 }
 
+type GroupInfo = {
+  inviteCode: string;
+  groupName: string;
+};
+
+// 툴바의 공유 버튼: 누르면 시트 코드와 초대 링크를 보여주고 복사할 수 있는 팝업을 연다.
+function ShareButton() {
+  const [open, setOpen] = useState(false);
+  const [info, setInfo] = useState<GroupInfo | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(false);
+  const [copied, setCopied] = useState<"code" | "link" | null>(null);
+  const wrapRef = useRef<HTMLDivElement>(null);
+
+  // 팝업이 열릴 때 그룹 정보를 한 번만 불러온다.
+  useEffect(() => {
+    if (!open || info || loading) return;
+    setLoading(true);
+    setError(false);
+    fetch("/api/group/info")
+      .then((res) => (res.ok ? res.json() : Promise.reject(res)))
+      .then((data: GroupInfo) => setInfo(data))
+      .catch(() => setError(true))
+      .finally(() => setLoading(false));
+  }, [open, info, loading]);
+
+  // 바깥 클릭/ESC로 팝업 닫기.
+  useEffect(() => {
+    if (!open) return;
+    function onDown(e: MouseEvent) {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
+    }
+    window.addEventListener("mousedown", onDown);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("mousedown", onDown);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  const inviteLink = useMemo(() => {
+    if (!info || typeof window === "undefined") return "";
+    return `${window.location.origin}/?invite=${encodeURIComponent(info.inviteCode)}`;
+  }, [info]);
+
+  async function copy(value: string, which: "code" | "link") {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(which);
+      window.setTimeout(() => setCopied(null), 1500);
+    } catch {
+      // 클립보드 권한이 없으면 무시 (사용자가 직접 선택 복사 가능)
+    }
+  }
+
+  return (
+    <div ref={wrapRef} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="w-7 h-7 rounded grid place-items-center text-[var(--sheet-fg)] hover:bg-black/5"
+        aria-label="공유"
+        title="공유"
+      >
+        <Share2 size={16} />
+      </button>
+
+      {open && (
+        <div className="absolute z-30 top-9 left-0 w-[320px] bg-white rounded-lg shadow-xl border border-[var(--sheet-border)] p-4 text-[var(--sheet-fg)] cursor-default">
+          <div className="text-[15px] font-medium mb-3">
+            {info ? `"${info.groupName}" 공유` : "공유"}
+          </div>
+
+          {loading && (
+            <div className="text-[13px] text-[var(--sheet-muted)]">
+              불러오는 중...
+            </div>
+          )}
+
+          {error && (
+            <div className="text-[13px] text-[#d93025]">
+              정보를 불러오지 못했어요. 잠시 후 다시 시도해주세요.
+            </div>
+          )}
+
+          {info && !loading && (
+            <div className="flex flex-col gap-3">
+              <ShareRow
+                label="시트 코드"
+                value={info.inviteCode}
+                mono
+                copied={copied === "code"}
+                onCopy={() => copy(info.inviteCode, "code")}
+              />
+              <ShareRow
+                label="초대 링크"
+                value={inviteLink}
+                copied={copied === "link"}
+                onCopy={() => copy(inviteLink, "link")}
+              />
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ShareRow({
+  label,
+  value,
+  mono,
+  copied,
+  onCopy,
+}: {
+  label: string;
+  value: string;
+  mono?: boolean;
+  copied: boolean;
+  onCopy: () => void;
+}) {
+  return (
+    <div className="flex flex-col gap-1">
+      <span className="text-[12px] text-[var(--sheet-muted)]">{label}</span>
+      <div className="flex items-center gap-1">
+        <input
+          type="text"
+          readOnly
+          value={value}
+          onFocus={(e) => e.currentTarget.select()}
+          className={
+            (mono ? "font-mono tracking-widest " : "") +
+            "flex-1 min-w-0 border border-[var(--sheet-border)] rounded px-2 py-1.5 text-[13px] bg-[var(--sheet-toolbar-bg)] focus:outline-none focus:border-[var(--sheet-active)]"
+          }
+        />
+        <button
+          type="button"
+          onClick={onCopy}
+          className="shrink-0 w-8 h-8 rounded grid place-items-center hover:bg-black/5"
+          aria-label={`${label} 복사`}
+          title="복사"
+        >
+          {copied ? (
+            <Check size={16} className="text-[var(--sheet-active)]" />
+          ) : (
+            <Copy size={16} />
+          )}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function Toolbar() {
   const Btn = ({ children }: { children: ReactNode }) => (
     <button
@@ -231,9 +397,7 @@ function Toolbar() {
       <Btn>
         <ArrowLeftRight size={16} />
       </Btn>
-      <Btn>
-        <Share2 size={16} />
-      </Btn>
+      <ShareButton />
       <div className="flex-1" />
       <Btn>
         <MoreVertical size={16} />
