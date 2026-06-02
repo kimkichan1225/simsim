@@ -297,30 +297,33 @@ export function MultiplayerGame({
     }
   }, []);
 
-  const matchAndMaybeClaim = useCallback(
+  // 입력값으로 시작하는 단어 셀을 하이라이트만 한다 (claim은 Enter에서만)
+  const highlightMatch = useCallback((value: string) => {
+    if (value.length === 0) {
+      setActiveWordId(null);
+      return;
+    }
+    const words = stateRef.current.activeWords;
+    const candidates = words.filter((w) => w.text.startsWith(value));
+    if (candidates.length === 0) {
+      setActiveWordId(null);
+      return;
+    }
+    candidates.sort((a, b) => a.text.length - b.text.length);
+    setActiveWordId(candidates[0].id);
+  }, []);
+
+  // Enter로 확정: 입력값과 정확히 일치하는 단어가 있으면 claim, 없으면 입력 초기화
+  const submitWord = useCallback(
     (value: string) => {
-      if (value.length === 0) {
-        setActiveWordId(null);
-        return;
-      }
       const words = stateRef.current.activeWords;
-      const currentActiveId = activeWordIdRef.current;
-      if (currentActiveId) {
-        const w = words.find((it) => it.id === currentActiveId);
-        if (w && w.text.startsWith(value)) {
-          if (w.text === value) void tryClaim(w.id, value);
-          return;
-        }
-      }
-      const candidates = words.filter((w) => w.text.startsWith(value));
-      if (candidates.length === 0) {
+      const exact = words.find((w) => w.text === value);
+      if (exact) {
+        void tryClaim(exact.id, value);
+      } else {
+        setInput("");
         setActiveWordId(null);
-        return;
       }
-      candidates.sort((a, b) => a.text.length - b.text.length);
-      const chosen = candidates[0];
-      setActiveWordId(chosen.id);
-      if (chosen.text === value) void tryClaim(chosen.id, value);
     },
     [tryClaim],
   );
@@ -329,7 +332,16 @@ export function MultiplayerGame({
     if (state.status !== "running") return;
     setInput(value);
     if (composingRef.current) return;
-    matchAndMaybeClaim(value);
+    highlightMatch(value);
+  }
+
+  function onInputKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key !== "Enter") return;
+    // 한글 조합 중 Enter(조합 확정)는 제출로 처리하지 않는다
+    if (e.nativeEvent.isComposing || composingRef.current) return;
+    if (state.status !== "running") return;
+    e.preventDefault();
+    submitWord(input);
   }
 
   function onCompositionStart() {
@@ -341,7 +353,7 @@ export function MultiplayerGame({
     if (state.status !== "running") return;
     const value = (e.target as HTMLInputElement).value;
     setInput(value);
-    matchAndMaybeClaim(value);
+    highlightMatch(value);
   }
 
   const myScore =
@@ -375,6 +387,7 @@ export function MultiplayerGame({
           input={input}
           inputRef={inputRef}
           onChange={onInputChange}
+          onKeyDown={onInputKeyDown}
           onCompositionStart={onCompositionStart}
           onCompositionEnd={onCompositionEnd}
         />
@@ -604,12 +617,14 @@ function InputArea({
   input,
   inputRef,
   onChange,
+  onKeyDown,
   onCompositionStart,
   onCompositionEnd,
 }: {
   input: string;
   inputRef: React.RefObject<HTMLInputElement | null>;
   onChange: (v: string) => void;
+  onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => void;
   onCompositionStart: () => void;
   onCompositionEnd: (e: React.CompositionEvent<HTMLInputElement>) => void;
 }) {
@@ -620,6 +635,7 @@ function InputArea({
         type="text"
         value={input}
         onChange={(e) => onChange(e.target.value)}
+        onKeyDown={onKeyDown}
         onCompositionStart={onCompositionStart}
         onCompositionEnd={onCompositionEnd}
         autoFocus
@@ -627,7 +643,7 @@ function InputArea({
         autoCorrect="off"
         spellCheck={false}
         className="w-full max-w-md px-3 py-2 border border-[var(--sheet-active)] outline-none text-[18px] bg-[var(--sheet-active-bg)] text-center tabular-nums"
-        placeholder="셀에 보이는 단어를 빠르게 입력하세요"
+        placeholder="단어를 입력하고 Enter로 확정하세요"
       />
       <div className="text-[11px] text-[var(--sheet-muted)]">
         Ctrl+B로 즉시 시트 홈으로 이동
