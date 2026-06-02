@@ -28,17 +28,17 @@ const SHAPES: Record<PieceType, number[][]> = {
   L: [[0, 0, 1], [1, 1, 1], [0, 0, 0]],
 };
 
-// 셀 색상 — 스프레드시트 컨셉에 맞춰 구글 시트 초록 계열 모노톤으로 통일.
-// 형형색색 대신 초록 3단계 + 방해 줄만 회색.
+// 셀 색상 — 스프레드시트 위장 컨셉에 맞춰 회색조(명도 차이)로만 구성.
+// 조각은 진회색 3단계, 방해 줄은 연회색으로 구분.
 const COLORS: Record<PieceType | "garbage", string> = {
-  I: "#0f9d58",
-  S: "#0f9d58",
-  L: "#0f9d58",
-  O: "#34a853",
-  T: "#34a853",
-  Z: "#0b8043",
-  J: "#0b8043",
-  garbage: "#9aa0a6",
+  I: "#3c4043",
+  J: "#3c4043",
+  O: "#5f6368",
+  Z: "#5f6368",
+  T: "#70757a",
+  L: "#70757a",
+  S: "#80868b",
+  garbage: "#bdc1c6",
 };
 
 const TYPES: PieceType[] = Object.keys(SHAPES) as PieceType[];
@@ -573,9 +573,9 @@ function TetrisBoard({
                   width: `${Math.min(100, s.gauge)}%`,
                   background:
                     s.gauge >= 80
-                      ? "#0b8043"
+                      ? "#3c4043"
                       : s.gauge >= 50
-                        ? "#34a853"
+                        ? "#5f6368"
                         : "#9aa0a6",
                 }}
               />
@@ -963,7 +963,7 @@ export function TetrisGame({
 
   if (phase === "versus") {
     return (
-      <div className="py-4 flex flex-col gap-4">
+      <div className="py-4 flex gap-8 items-start flex-wrap">
         <TetrisBoard
           mode="versus"
           pendingGarbageRef={pendingGarbageRef}
@@ -972,12 +972,17 @@ export function TetrisGame({
           postAttack={postAttack}
           postOut={postOut}
         />
-        {opponents.length > 0 && (
-          <div>
-            <div className="text-[12px] text-[var(--sheet-muted)] mb-2">
-              상대 ({opponents.length})
+        <div className="flex flex-col gap-2">
+          <div className="text-[12px] text-[var(--sheet-muted)]">
+            상대 ({opponents.length})
+          </div>
+          {opponents.length === 0 ? (
+            <div className="text-[12px] text-[var(--sheet-muted)] max-w-[200px] leading-relaxed">
+              아직 상대가 없어요. 같은 그룹의 멤버가 테트리스 탭에 들어오면 함께
+              대결합니다.
             </div>
-            <div className="flex gap-4 flex-wrap">
+          ) : (
+            <div className="flex flex-wrap gap-4 max-w-[440px] content-start">
               {opponents.map((p) => (
                 <MiniBoard
                   key={p.memberId}
@@ -988,14 +993,8 @@ export function TetrisGame({
                 />
               ))}
             </div>
-          </div>
-        )}
-        {opponents.length === 0 && (
-          <div className="text-[12px] text-[var(--sheet-muted)]">
-            아직 상대가 없어요. 같은 그룹의 멤버가 테트리스 탭에 들어오면 함께
-            대결합니다.
-          </div>
-        )}
+          )}
+        </div>
       </div>
     );
   }
