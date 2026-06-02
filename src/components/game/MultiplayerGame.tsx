@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 
 type Participant = {
   memberId: string;
@@ -47,7 +48,8 @@ type ServerEvent =
       newScore: number;
     }
   | { type: "word_spawned"; word: ActiveWord }
-  | { type: "game_ended"; results: GameResult[] };
+  | { type: "game_ended"; results: GameResult[] }
+  | { type: "group_destroyed" };
 
 type State = {
   status: GameStatus;
@@ -74,10 +76,13 @@ const initialState: State = {
 export function MultiplayerGame({
   myMemberId,
   myNickname,
+  isOwner,
 }: {
   myMemberId: string;
   myNickname: string;
+  isOwner: boolean;
 }) {
+  const router = useRouter();
   const [state, setState] = useState<State>(initialState);
   const [input, setInput] = useState("");
   const [activeWordId, setActiveWordId] = useState<string | null>(null);
@@ -87,6 +92,8 @@ export function MultiplayerGame({
   const composingRef = useRef(false);
   const claimingRef = useRef<Set<string>>(new Set());
   const inputRef = useRef<HTMLInputElement>(null);
+  // 자동 참여를 게임당 한 번만 호출하기 위한 추적 ref
+  const joinedGameIdRef = useRef<string | null>(null);
   const stateRef = useRef(state);
   stateRef.current = state;
   const activeWordIdRef = useRef(activeWordId);
@@ -164,6 +171,16 @@ export function MultiplayerGame({
     });
   }, []);
 
+  // 방 폭파 시: 세션 정리 후 입장 화면으로 돌아간다.
+  const handleDestroyed = useCallback(async () => {
+    try {
+      await fetch("/api/session/leave", { method: "POST" });
+    } catch {
+      /* ignore */
+    }
+    router.refresh();
+  }, [router]);
+
   // SSE 연결
   useEffect(() => {
     const es = new EventSource("/api/play/stream");
@@ -171,6 +188,11 @@ export function MultiplayerGame({
       if (!e.data) return;
       try {
         const ev = JSON.parse(e.data) as ServerEvent;
+        if (ev.type === "group_destroyed") {
+          es.close();
+          void handleDestroyed();
+          return;
+        }
         applyEvent(ev);
       } catch {
         /* ignore */
@@ -180,7 +202,25 @@ export function MultiplayerGame({
       /* EventSource auto-reconnects */
     };
     return () => es.close();
-  }, [applyEvent]);
+  }, [applyEvent, handleDestroyed]);
+
+  // 진행 중인 게임에 내가 아직 참가자가 아니면 자동으로 합류한다(시작은 방장만).
+  useEffect(() => {
+    if (state.status !== "running" || !state.gameId) return;
+    const amParticipant = state.participants.some(
+      (p) => p.memberId === myMemberId,
+    );
+    if (amParticipant) {
+      joinedGameIdRef.current = state.gameId;
+      return;
+    }
+    if (joinedGameIdRef.current === state.gameId) return;
+    joinedGameIdRef.current = state.gameId;
+    void fetch("/api/play/join", { method: "POST" }).catch(() => {
+      // 실패 시 다음 스냅샷에서 재시도할 수 있도록 추적값을 되돌린다.
+      joinedGameIdRef.current = null;
+    });
+  }, [state.status, state.gameId, state.participants, myMemberId]);
 
   // UI 클럭 (남은 시간)
   useEffect(() => {
@@ -324,9 +364,12 @@ export function MultiplayerGame({
         status={state.status}
       />
       <FlashLine flash={state.flash} myMemberId={myMemberId} now={now} />
-      {state.status === "idle" && (
-        <StartCard onStart={startGame} error={startError} />
-      )}
+      {state.status === "idle" &&
+        (isOwner ? (
+          <StartCard onStart={startGame} error={startError} />
+        ) : (
+          <WaitingCard />
+        ))}
       {state.status === "running" && (
         <InputArea
           input={input}
@@ -341,6 +384,7 @@ export function MultiplayerGame({
           results={state.results}
           myMemberId={myMemberId}
           onRestart={startGame}
+          canRestart={isOwner}
         />
       )}
     </div>
@@ -353,6 +397,8 @@ function translateStartError(code: string | undefined): string {
       return "그룹에 다시 입장해야 해요.";
     case "rate_limited":
       return "잠시 후 다시 시도해주세요.";
+    case "forbidden":
+      return "게임 시작은 방장만 할 수 있어요.";
     default:
       return "시작에 실패했어요.";
   }
@@ -517,6 +563,18 @@ function FlashLine({
   );
 }
 
+function WaitingCard() {
+  return (
+    <div className="flex flex-col items-center gap-3 p-6 border border-[var(--sheet-cell-border)] bg-white">
+      <p className="text-[13px] text-[var(--sheet-muted)] text-center">
+        방장이 게임을 시작하기를 기다리는 중이에요.
+        <br />
+        시작되면 자동으로 참여됩니다.
+      </p>
+    </div>
+  );
+}
+
 function StartCard({
   onStart,
   error,
@@ -527,7 +585,7 @@ function StartCard({
   return (
     <div className="flex flex-col items-center gap-3 p-6 border border-[var(--sheet-cell-border)] bg-white">
       <p className="text-[13px] text-[var(--sheet-muted)] text-center">
-        시작하면 90초 동안 단어 줍기 대결이 시작됩니다.
+        시작하면 30초 동안 단어 줍기 대결이 시작됩니다.
         <br />같은 그룹의 다른 사람들도 자동으로 참여할 수 있어요.
       </p>
       {error && <div className="text-[13px] text-[#d93025]">{error}</div>}
@@ -582,10 +640,12 @@ function ResultCard({
   results,
   myMemberId,
   onRestart,
+  canRestart,
 }: {
   results: GameResult[];
   myMemberId: string;
   onRestart: () => void;
+  canRestart: boolean;
 }) {
   return (
     <div className="flex flex-col items-center gap-3 p-6 border border-[var(--sheet-cell-border)] bg-white w-full">
@@ -617,13 +677,19 @@ function ResultCard({
           })}
         </tbody>
       </table>
-      <button
-        type="button"
-        onClick={onRestart}
-        className="mt-2 px-4 py-2 rounded bg-[var(--sheet-active)] text-white text-[14px] font-medium"
-      >
-        다시 시작
-      </button>
+      {canRestart ? (
+        <button
+          type="button"
+          onClick={onRestart}
+          className="mt-2 px-4 py-2 rounded bg-[var(--sheet-active)] text-white text-[14px] font-medium"
+        >
+          다시 시작
+        </button>
+      ) : (
+        <p className="mt-2 text-[12px] text-[var(--sheet-muted)]">
+          방장이 다시 시작할 수 있어요.
+        </p>
+      )}
     </div>
   );
 }

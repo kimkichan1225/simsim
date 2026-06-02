@@ -17,9 +17,15 @@ type Props = {
   groupName: string;
   nickname: string;
   memberId: string;
+  isOwner: boolean;
 };
 
-export function WorkspaceSheet({ groupName, nickname, memberId }: Props) {
+export function WorkspaceSheet({
+  groupName,
+  nickname,
+  memberId,
+  isOwner,
+}: Props) {
   const router = useRouter();
   const [activeTabId, setActiveTabId] = useState(TABS[0].id);
   const [refreshKey] = useState(0);
@@ -51,7 +57,11 @@ export function WorkspaceSheet({ groupName, nickname, memberId }: Props) {
     >
       {activeTabId === "match" && (
         <div className="px-6">
-          <MultiplayerGame myMemberId={memberId} myNickname={nickname} />
+          <MultiplayerGame
+            myMemberId={memberId}
+            myNickname={nickname}
+            isOwner={isOwner}
+          />
         </div>
       )}
       {activeTabId === "leaderboard" && (

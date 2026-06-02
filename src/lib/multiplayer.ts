@@ -41,7 +41,8 @@ export type GameEvent =
       newScore: number;
     }
   | { type: "word_spawned"; word: ActiveWord }
-  | { type: "game_ended"; results: GameResult[] };
+  | { type: "game_ended"; results: GameResult[] }
+  | { type: "group_destroyed" };
 
 type Subscriber = (event: GameEvent) => void;
 
@@ -62,7 +63,7 @@ type ActiveGame = {
 const games = new Map<string, ActiveGame>();
 const groupSubscribers = new Map<string, Map<string, Subscriber>>();
 
-const DURATION_SEC = 90;
+const DURATION_SEC = 30;
 const TARGET_WORD_COUNT = 8;
 
 function newId(bytes: number): string {
@@ -184,6 +185,31 @@ export function startOrJoinGame(input: {
   return { game, created: true };
 }
 
+// 진행 중인 게임에 참가자로 합류한다. 새 게임을 만들지는 않는다(시작은 방장만).
+export function joinGame(input: {
+  groupId: string;
+  memberId: string;
+  nickname: string;
+}): { ok: boolean; reason?: "no_game" } {
+  const game = games.get(input.groupId);
+  if (!game || game.status !== "running" || Date.now() >= game.endsAt) {
+    return { ok: false, reason: "no_game" };
+  }
+  if (!game.participants.has(input.memberId)) {
+    game.participants.set(input.memberId, {
+      memberId: input.memberId,
+      nickname: input.nickname,
+      score: 0,
+    });
+    broadcastToGroup(game.groupId, {
+      type: "participant_joined",
+      memberId: input.memberId,
+      nickname: input.nickname,
+    });
+  }
+  return { ok: true };
+}
+
 export function registerSubscriber(
   groupId: string,
   memberId: string,
@@ -219,6 +245,8 @@ export function removeSubscriber(groupId: string, memberId: string): void {
 
 // 방이 폭파될 때 인메모리 게임/타이머/구독 상태를 모두 정리한다.
 export function destroyGroup(groupId: string): void {
+  // 구독자(참가자) 화면이 입장 화면으로 돌아가도록 먼저 폭파 이벤트를 보낸다.
+  broadcastToGroup(groupId, { type: "group_destroyed" });
   const game = games.get(groupId);
   if (game) {
     cleanupGame(game);
