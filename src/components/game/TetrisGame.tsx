@@ -134,6 +134,7 @@ function TetrisBoard({
   const g = useRef<GameState | null>(null);
   const [flash, setFlash] = useState(false);
   const countdownTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const softDropRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const startCountdown = useCallback(() => {
     if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
@@ -356,7 +357,16 @@ function TetrisBoard({
     return () => clearTimeout(t);
   }, [isVersus, attackSeq]);
 
+  // 소프트드롭(아래키 꾹) 중지
+  const stopSoftDrop = useCallback(() => {
+    if (softDropRef.current) {
+      clearInterval(softDropRef.current);
+      softDropRef.current = null;
+    }
+  }, []);
+
   // 키 입력
+  // 조작: ←→ 이동 · Space 회전 · ↓ 소프트드롭(꾹) · 왼쪽 Ctrl 하드드롭 · C 홀드
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const s = g.current;
@@ -375,6 +385,14 @@ function TetrisBoard({
         return;
       }
       if (s.paused || s.countdown > 0) return;
+
+      // 왼쪽 Ctrl = 하드드롭 (누르고 있어도 한 번만)
+      if (e.code === "ControlLeft") {
+        e.preventDefault();
+        if (!e.repeat) hardDrop();
+        return;
+      }
+
       switch (k) {
         case "ArrowLeft":
           e.preventDefault();
@@ -386,31 +404,42 @@ function TetrisBoard({
           break;
         case "ArrowDown":
           e.preventDefault();
-          step();
+          // 꾹 누르면 일정 간격으로 계속 한 칸씩 내려가게 한다.
+          if (!softDropRef.current) {
+            step();
+            softDropRef.current = setInterval(() => step(), 50);
+          }
           break;
+        case " ":
         case "ArrowUp":
         case "x":
         case "X":
           e.preventDefault();
-          rotate();
-          break;
-        case " ":
-          e.preventDefault();
-          hardDrop();
+          if (!e.repeat) rotate();
           break;
         case "c":
         case "C":
         case "Shift":
           e.preventDefault();
-          hold();
+          if (!e.repeat) hold();
           break;
         default:
           break;
       }
     };
+
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (e.key === "ArrowDown") stopSoftDrop();
+    };
+
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [move, rotate, step, hardDrop, hold, onBack, isVersus]);
+    window.addEventListener("keyup", onKeyUp);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("keyup", onKeyUp);
+      stopSoftDrop();
+    };
+  }, [move, rotate, step, hardDrop, hold, onBack, isVersus, stopSoftDrop]);
 
   const s = g.current;
   if (!s) return null;
@@ -583,8 +612,8 @@ function TetrisBoard({
           </Panel>
         )}
         <div className="text-[11px] text-[var(--sheet-muted)] leading-relaxed mt-1">
-          ← → 이동 · ↑/X 회전
-          <br />↓ 소프트드롭 · Space 하드드롭
+          ← → 이동 · Space 회전
+          <br />↓ 소프트드롭(꾹) · 왼쪽 Ctrl 하드드롭
           <br />C 홀드
           {!isVersus && (
             <>
