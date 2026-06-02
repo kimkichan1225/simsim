@@ -14,24 +14,28 @@ export type LobbyMember = {
 type Props = {
   title: string;
   description?: string;
+  notice?: string | null; // 진행 중 대결 안내 등 강조 배너
   members: LobbyMember[];
   myMemberId: string;
   isOwner: boolean;
   onStart: () => void;
   onReady: (ready: boolean) => void;
   startError?: string | null;
+  canStart?: boolean; // false면 시작 버튼 비활성(예: 다른 대결 진행 중)
   busy?: boolean;
 };
 
 export function LobbyCard({
   title,
   description,
+  notice,
   members,
   myMemberId,
   isOwner,
   onStart,
   onReady,
   startError,
+  canStart = true,
   busy,
 }: Props) {
   const me = members.find((m) => m.memberId === myMemberId);
@@ -48,6 +52,11 @@ export function LobbyCard({
         <p className="text-[13px] text-[var(--sheet-muted)] text-center whitespace-pre-line">
           {description}
         </p>
+      )}
+      {notice && (
+        <div className="w-full text-center text-[12px] text-[var(--sheet-fg)] bg-[var(--sheet-header-bg)] border border-[var(--sheet-cell-border)] rounded px-3 py-2">
+          {notice}
+        </div>
       )}
 
       <div className="w-full flex flex-col gap-1">
@@ -103,12 +112,12 @@ export function LobbyCard({
           <button
             type="button"
             onClick={onStart}
-            disabled={!allReady || busy}
+            disabled={!allReady || !canStart || busy}
             className="w-full px-5 py-2.5 rounded bg-[var(--sheet-active)] text-white text-[15px] font-medium hover:brightness-95 disabled:opacity-50"
           >
             {soloOwner ? "혼자 시작" : "시작"}
           </button>
-          {!allReady && !soloOwner && (
+          {canStart && !allReady && !soloOwner && (
             <div className="text-[12px] text-[var(--sheet-muted)]">
               모든 참가자가 준비하면 시작할 수 있어요
             </div>

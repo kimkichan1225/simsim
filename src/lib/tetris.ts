@@ -194,15 +194,30 @@ export function startMatch(input: {
   return { matchId: match.matchId, startedAt: match.startedAt };
 }
 
+// 시작 직후 이 시간 안에 들어온 요청만 합류 허용(도중 난입 방지).
+const JOIN_GRACE_MS = 5000;
+
 // 진행 중인 대결에 합류한다(새 대결은 만들지 않는다).
 export function joinMatch(input: {
   groupId: string;
   memberId: string;
   nickname: string;
-}): { ok: boolean; reason?: "no_match"; matchId?: string; startedAt?: number } {
+}): {
+  ok: boolean;
+  reason?: "no_match" | "in_progress";
+  matchId?: string;
+  startedAt?: number;
+} {
   const match = matches.get(input.groupId);
   if (!match || match.status !== "running") {
     return { ok: false, reason: "no_match" };
+  }
+  // 이미 참가자면 통과(재연결 등). 신규 합류는 시작 직후 유예시간 내에서만 허용.
+  if (
+    !match.players.has(input.memberId) &&
+    Date.now() - match.startedAt > JOIN_GRACE_MS
+  ) {
+    return { ok: false, reason: "in_progress" };
   }
   if (!match.players.has(input.memberId)) {
     match.players.set(input.memberId, {

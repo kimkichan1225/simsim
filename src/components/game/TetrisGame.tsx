@@ -817,26 +817,10 @@ export function TetrisGame({
   const [attackSeq, setAttackSeq] = useState(0);
   const [startError, setStartError] = useState<string | null>(null);
   const [lobbyMembers, setLobbyMembers] = useState<LobbyMember[]>([]);
+  const [matchRunning, setMatchRunning] = useState(false); // 다른 사람이 대결 중인지
 
   const pendingGarbageRef = useRef(0);
   const joinedMatchRef = useRef<string | null>(null);
-
-  // 진행 중인 대결에 내가 아직 없으면 자동 합류한다(시작은 방장만).
-  const autoJoin = useCallback(
-    (mId: string, ps: PlayerView[]) => {
-      const amIn = ps.some((p) => p.memberId === myMemberId);
-      if (amIn) {
-        joinedMatchRef.current = mId;
-        return;
-      }
-      if (joinedMatchRef.current === mId) return;
-      joinedMatchRef.current = mId;
-      void fetch("/api/tetris/join", { method: "POST" }).catch(() => {
-        joinedMatchRef.current = null;
-      });
-    },
-    [myMemberId],
-  );
 
   const applyEvent = useCallback(
     (ev: TetrisEvent) => {
@@ -846,12 +830,26 @@ export function TetrisGame({
           setPlayers(ev.players);
           setBoards(ev.boards ?? {});
           if (ev.status === "running") {
-            pendingGarbageRef.current = 0;
-            autoJoin(ev.matchId, ev.players);
-            setPhase("versus");
+            setMatchRunning(true);
+            const amParticipant = ev.players.some(
+              (p) => p.memberId === myMemberId,
+            );
+            // 시작할 때 함께 있었던(=참가자거나 방금 합류한) 사람만 대결로.
+            // 도중에 들어온 사람은 합류하지 않고 대기실에서 다음 판을 기다린다.
+            if (amParticipant || joinedMatchRef.current === ev.matchId) {
+              pendingGarbageRef.current = 0;
+              joinedMatchRef.current = ev.matchId;
+              setPhase("versus");
+            } else {
+              setPhase("lobby");
+            }
           } else if (ev.status === "ended") {
+            setMatchRunning(false);
             setResults(ev.results ?? null);
-            setPhase("result");
+            const inResults = (ev.results ?? []).some(
+              (r) => r.memberId === myMemberId,
+            );
+            setPhase(inResults ? "result" : "lobby");
           }
           break;
         }
@@ -859,14 +857,13 @@ export function TetrisGame({
           setMatchId(ev.matchId);
           setResults(null);
           setBoards({});
+          setMatchRunning(true);
           pendingGarbageRef.current = 0;
-          joinedMatchRef.current = null;
-          // 다음 snapshot/player_joined로 참가자 목록이 채워진다
-          void fetch("/api/tetris/join", { method: "POST" })
-            .then(() => {
-              joinedMatchRef.current = ev.matchId;
-            })
-            .catch(() => undefined);
+          // 시작 시점에 이 탭에 있던 사람만 이 매치에 합류한다.
+          joinedMatchRef.current = ev.matchId;
+          void fetch("/api/tetris/join", { method: "POST" }).catch(
+            () => undefined,
+          );
           setPhase("versus");
           break;
         }
@@ -907,8 +904,11 @@ export function TetrisGame({
           break;
         }
         case "match_ended": {
+          setMatchRunning(false);
           setResults(ev.results);
-          setPhase("result");
+          // 대결에 참여한 사람만 결과 화면, 대기 중이던 사람은 대기실로.
+          const inResults = ev.results.some((r) => r.memberId === myMemberId);
+          setPhase(inResults ? "result" : "lobby");
           break;
         }
         case "lobby": {
@@ -919,7 +919,7 @@ export function TetrisGame({
           break;
       }
     },
-    [autoJoin, myMemberId],
+    [myMemberId],
   );
 
   // SSE 연결 (탭이 마운트된 동안 유지)
@@ -1090,12 +1090,18 @@ export function TetrisGame({
         description={
           "블록을 쌓아 줄을 지우세요.\n시작하면 같은 그룹의 멤버들과 생존 대결을 합니다."
         }
+        notice={
+          matchRunning
+            ? "다른 멤버들이 대결 중이에요. 끝나면 다음 판에 참여할 수 있어요."
+            : undefined
+        }
         members={lobbyMembers}
         myMemberId={myMemberId}
         isOwner={isOwner}
         onStart={startVersus}
         onReady={toggleReady}
         startError={startError}
+        canStart={!matchRunning}
       />
     </div>
   );
