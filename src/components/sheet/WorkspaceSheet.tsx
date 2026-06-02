@@ -4,11 +4,13 @@ import { useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ActivityTab } from "@/components/activity/ActivityTab";
 import { MultiplayerGame } from "@/components/game/MultiplayerGame";
+import { TetrisGame } from "@/components/game/TetrisGame";
 import { LeaderboardTab } from "@/components/leaderboard/LeaderboardTab";
 import { SheetShell, type SheetTab } from "./SheetShell";
 
 const TABS: SheetTab[] = [
   { id: "match", label: "단어줍기" },
+  { id: "tetris", label: "테트리스" },
   { id: "leaderboard", label: "점수판" },
   { id: "activity", label: "활동" },
 ];
@@ -58,6 +60,15 @@ export function WorkspaceSheet({
       {activeTabId === "match" && (
         <div className="px-6">
           <MultiplayerGame
+            myMemberId={memberId}
+            myNickname={nickname}
+            isOwner={isOwner}
+          />
+        </div>
+      )}
+      {activeTabId === "tetris" && (
+        <div className="px-6">
+          <TetrisGame
             myMemberId={memberId}
             myNickname={nickname}
             isOwner={isOwner}
