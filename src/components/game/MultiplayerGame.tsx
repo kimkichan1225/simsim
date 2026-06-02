@@ -327,16 +327,14 @@ export function MultiplayerGame({
     setActiveWordId(candidates[0].id);
   }, []);
 
-  // Enter로 확정: 입력값과 정확히 일치하는 단어가 있으면 claim, 없으면 입력 초기화
+  // Enter로 확정: 입력값과 정확히 일치하는 단어가 있을 때만 claim.
+  // 일치하는 단어가 없으면 입력값을 지우지 않고 그대로 둔다(계속 입력/수정 가능).
   const submitWord = useCallback(
     (value: string) => {
       const words = stateRef.current.activeWords;
       const exact = words.find((w) => w.text === value);
       if (exact) {
         void tryClaim(exact.id, value);
-      } else {
-        setInput("");
-        setActiveWordId(null);
       }
     },
     [tryClaim],
