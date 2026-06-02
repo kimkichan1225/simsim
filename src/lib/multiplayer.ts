@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { rollWord, type Word } from "./words";
+import { GroupLobby, type LobbyMemberView } from "./lobby";
 
 export type GameStatus = "running" | "ended";
 
@@ -42,6 +43,7 @@ export type GameEvent =
     }
   | { type: "word_spawned"; word: ActiveWord }
   | { type: "game_ended"; results: GameResult[] }
+  | { type: "lobby"; members: LobbyMemberView[] }
   | { type: "group_destroyed" };
 
 type Subscriber = (event: GameEvent) => void;
@@ -62,6 +64,7 @@ type ActiveGame = {
 
 const games = new Map<string, ActiveGame>();
 const groupSubscribers = new Map<string, Map<string, Subscriber>>();
+const lobby = new GroupLobby();
 
 const DURATION_SEC = 30;
 const TARGET_WORD_COUNT = 8;
@@ -80,6 +83,25 @@ function broadcastToGroup(groupId: string, event: GameEvent): void {
       console.error("subscriber error", e);
     }
   }
+}
+
+function broadcastLobby(groupId: string): void {
+  broadcastToGroup(groupId, { type: "lobby", members: lobby.snapshot(groupId) });
+}
+
+// 준비 상태 토글 → 대기실 갱신 브로드캐스트
+export function setLobbyReady(
+  groupId: string,
+  memberId: string,
+  ready: boolean,
+): void {
+  lobby.setReady(groupId, memberId, ready);
+  broadcastLobby(groupId);
+}
+
+// 방장을 제외한 접속자 전원 준비 여부(혼자면 true)
+export function isAllReady(groupId: string): boolean {
+  return lobby.allReady(groupId);
 }
 
 function hasPrefixConflict(
@@ -177,6 +199,9 @@ export function startOrJoinGame(input: {
     onEnded: input.onEnded,
   };
   games.set(input.groupId, game);
+  // 새 라운드 시작 → 준비 상태 초기화
+  lobby.clearReady(input.groupId);
+  broadcastLobby(input.groupId);
   ensureActiveWords(game);
   broadcastToGroup(game.groupId, snapshotOf(game));
   game.endTimer = setTimeout(() => {
@@ -213,6 +238,8 @@ export function joinGame(input: {
 export function registerSubscriber(
   groupId: string,
   memberId: string,
+  nickname: string,
+  isOwner: boolean,
   fn: Subscriber,
 ): { unsubscribe: () => void; initialEvent: GameEvent } {
   let bucket = groupSubscribers.get(groupId);
@@ -221,6 +248,10 @@ export function registerSubscriber(
     groupSubscribers.set(groupId, bucket);
   }
   bucket.set(memberId, fn);
+
+  // 접속 = 대기실 입장. 다른 접속자에게도 갱신을 알린다(본인 포함).
+  lobby.join(groupId, memberId, nickname, isOwner);
+  broadcastLobby(groupId);
 
   const game = games.get(groupId);
   const initialEvent: GameEvent = game ? snapshotOf(game) : { type: "no_game" };
@@ -231,6 +262,8 @@ export function registerSubscriber(
       b.delete(memberId);
       if (b.size === 0) groupSubscribers.delete(groupId);
     }
+    lobby.leave(groupId, memberId);
+    broadcastLobby(groupId);
   };
 
   return { unsubscribe, initialEvent };
@@ -253,6 +286,7 @@ export function destroyGroup(groupId: string): void {
     games.delete(groupId);
   }
   groupSubscribers.delete(groupId);
+  lobby.destroy(groupId);
 }
 
 export type ClaimResult =

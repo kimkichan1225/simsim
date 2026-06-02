@@ -7,6 +7,7 @@
 // 만 담당하는 권위-경량 구조다.
 
 import { randomBytes } from "node:crypto";
+import { GroupLobby, type LobbyMemberView } from "./lobby";
 
 export const TETRIS_COLS = 10;
 export const TETRIS_ROWS = 20;
@@ -52,6 +53,7 @@ export type TetrisEvent =
   | { type: "player_attack"; fromMemberId: string; lines: number }
   | { type: "player_out"; memberId: string; rank: number; score: number }
   | { type: "match_ended"; results: TetrisResult[] }
+  | { type: "lobby"; members: LobbyMemberView[] }
   | { type: "group_destroyed" };
 
 type Subscriber = (event: TetrisEvent) => void;
@@ -76,6 +78,7 @@ type TetrisMatch = {
 
 const matches = new Map<string, TetrisMatch>();
 const groupSubscribers = new Map<string, Map<string, Subscriber>>();
+const lobby = new GroupLobby();
 
 function newId(bytes: number): string {
   return randomBytes(bytes).toString("base64url");
@@ -91,6 +94,23 @@ function broadcastToGroup(groupId: string, event: TetrisEvent): void {
       console.error("tetris subscriber error", e);
     }
   }
+}
+
+function broadcastLobby(groupId: string): void {
+  broadcastToGroup(groupId, { type: "lobby", members: lobby.snapshot(groupId) });
+}
+
+export function setLobbyReady(
+  groupId: string,
+  memberId: string,
+  ready: boolean,
+): void {
+  lobby.setReady(groupId, memberId, ready);
+  broadcastLobby(groupId);
+}
+
+export function isAllReady(groupId: string): boolean {
+  return lobby.allReady(groupId);
 }
 
 function playerView(p: TetrisPlayer): TetrisPlayerView {
@@ -159,6 +179,9 @@ export function startMatch(input: {
     results: null,
   };
   matches.set(input.groupId, match);
+  // 새 대결 시작 → 준비 상태 초기화
+  lobby.clearReady(input.groupId);
+  broadcastLobby(input.groupId);
   broadcastToGroup(match.groupId, {
     type: "match_started",
     matchId: match.matchId,
@@ -311,6 +334,8 @@ function cleanupMatch(match: TetrisMatch): void {
 export function registerSubscriber(
   groupId: string,
   memberId: string,
+  nickname: string,
+  isOwner: boolean,
   fn: Subscriber,
 ): { unsubscribe: () => void; initialEvent: TetrisEvent } {
   let bucket = groupSubscribers.get(groupId);
@@ -319,6 +344,9 @@ export function registerSubscriber(
     groupSubscribers.set(groupId, bucket);
   }
   bucket.set(memberId, fn);
+
+  lobby.join(groupId, memberId, nickname, isOwner);
+  broadcastLobby(groupId);
 
   const match = matches.get(groupId);
   const initialEvent: TetrisEvent = match
@@ -331,6 +359,8 @@ export function registerSubscriber(
       b.delete(memberId);
       if (b.size === 0) groupSubscribers.delete(groupId);
     }
+    lobby.leave(groupId, memberId);
+    broadcastLobby(groupId);
   };
 
   return { unsubscribe, initialEvent };
@@ -342,4 +372,5 @@ export function destroyGroupTetris(groupId: string): void {
   const match = matches.get(groupId);
   if (match) matches.delete(groupId);
   groupSubscribers.delete(groupId);
+  lobby.destroy(groupId);
 }

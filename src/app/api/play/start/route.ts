@@ -4,7 +4,7 @@ import {
   consumeToken,
   type RateLimitConfig,
 } from "@/lib/rate-limit";
-import { startOrJoinGame, type GameResult } from "@/lib/multiplayer";
+import { isAllReady, startOrJoinGame, type GameResult } from "@/lib/multiplayer";
 import { getCurrentMember, isGroupOwner } from "@/server/auth";
 
 const RATE_PLAY_START: RateLimitConfig = {
@@ -24,6 +24,11 @@ export async function POST() {
   // 게임 시작(새 라운드 생성)은 방장만 가능하다. 참가자는 /api/play/join으로 합류한다.
   if (!(await isGroupOwner(me.groupId, me.memberId))) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  }
+
+  // 방장을 제외한 접속자 전원이 준비해야 시작할 수 있다(혼자면 통과).
+  if (!isAllReady(me.groupId)) {
+    return NextResponse.json({ error: "not_ready" }, { status: 409 });
   }
 
   const groupId = me.groupId;

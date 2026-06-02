@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { LobbyCard, type LobbyMember } from "./LobbyCard";
 
 type Participant = {
   memberId: string;
@@ -49,6 +50,7 @@ type ServerEvent =
     }
   | { type: "word_spawned"; word: ActiveWord }
   | { type: "game_ended"; results: GameResult[] }
+  | { type: "lobby"; members: LobbyMember[] }
   | { type: "group_destroyed" };
 
 type State = {
@@ -60,6 +62,7 @@ type State = {
   activeWords: ActiveWord[];
   results: GameResult[] | null;
   flash: { memberId: string; nickname: string; points: number; at: number } | null;
+  lobbyMembers: LobbyMember[];
 };
 
 const initialState: State = {
@@ -71,6 +74,7 @@ const initialState: State = {
   activeWords: [],
   results: null,
   flash: null,
+  lobbyMembers: [],
 };
 
 export function MultiplayerGame({
@@ -118,7 +122,9 @@ export function MultiplayerGame({
           };
         }
         case "no_game":
-          return { ...initialState };
+          return { ...initialState, lobbyMembers: prev.lobbyMembers };
+        case "lobby":
+          return { ...prev, lobbyMembers: ev.members };
         case "participant_joined": {
           if (prev.participants.some((p) => p.memberId === ev.memberId)) {
             return prev;
@@ -279,6 +285,14 @@ export function MultiplayerGame({
     }
   }, []);
 
+  const toggleReady = useCallback((ready: boolean) => {
+    void fetch("/api/play/ready", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ready }),
+    }).catch(() => undefined);
+  }, []);
+
   const tryClaim = useCallback(async (wordId: string, text: string) => {
     if (claimingRef.current.has(wordId)) return;
     claimingRef.current.add(wordId);
@@ -376,12 +390,20 @@ export function MultiplayerGame({
         status={state.status}
       />
       <FlashLine flash={state.flash} myMemberId={myMemberId} now={now} />
-      {state.status === "idle" &&
-        (isOwner ? (
-          <StartCard onStart={startGame} error={startError} />
-        ) : (
-          <WaitingCard />
-        ))}
+      {state.status === "idle" && (
+        <LobbyCard
+          title="단어줍기"
+          description={
+            "시작하면 30초 동안 단어 줍기 대결이 진행돼요.\n같은 그룹의 다른 사람들도 함께 참여할 수 있어요."
+          }
+          members={state.lobbyMembers}
+          myMemberId={myMemberId}
+          isOwner={isOwner}
+          onStart={startGame}
+          onReady={toggleReady}
+          startError={startError}
+        />
+      )}
       {state.status === "running" && (
         <InputArea
           input={input}
@@ -393,12 +415,19 @@ export function MultiplayerGame({
         />
       )}
       {state.status === "ended" && state.results && (
-        <ResultCard
-          results={state.results}
-          myMemberId={myMemberId}
-          onRestart={startGame}
-          canRestart={isOwner}
-        />
+        <>
+          <ResultCard results={state.results} myMemberId={myMemberId} />
+          <LobbyCard
+            title="다시 하기"
+            description="다음 라운드를 준비하세요."
+            members={state.lobbyMembers}
+            myMemberId={myMemberId}
+            isOwner={isOwner}
+            onStart={startGame}
+            onReady={toggleReady}
+            startError={startError}
+          />
+        </>
       )}
     </div>
   );
@@ -412,6 +441,8 @@ function translateStartError(code: string | undefined): string {
       return "잠시 후 다시 시도해주세요.";
     case "forbidden":
       return "게임 시작은 방장만 할 수 있어요.";
+    case "not_ready":
+      return "모든 참가자가 준비해야 시작할 수 있어요.";
     default:
       return "시작에 실패했어요.";
   }
@@ -576,43 +607,6 @@ function FlashLine({
   );
 }
 
-function WaitingCard() {
-  return (
-    <div className="flex flex-col items-center gap-3 p-6 border border-[var(--sheet-cell-border)] bg-white">
-      <p className="text-[13px] text-[var(--sheet-muted)] text-center">
-        방장이 게임을 시작하기를 기다리는 중이에요.
-        <br />
-        시작되면 자동으로 참여됩니다.
-      </p>
-    </div>
-  );
-}
-
-function StartCard({
-  onStart,
-  error,
-}: {
-  onStart: () => void;
-  error: string | null;
-}) {
-  return (
-    <div className="flex flex-col items-center gap-3 p-6 border border-[var(--sheet-cell-border)] bg-white">
-      <p className="text-[13px] text-[var(--sheet-muted)] text-center">
-        시작하면 30초 동안 단어 줍기 대결이 시작됩니다.
-        <br />같은 그룹의 다른 사람들도 자동으로 참여할 수 있어요.
-      </p>
-      {error && <div className="text-[13px] text-[#d93025]">{error}</div>}
-      <button
-        type="button"
-        onClick={onStart}
-        className="px-5 py-2 rounded bg-[var(--sheet-active)] text-white text-[14px] font-medium"
-      >
-        시작
-      </button>
-    </div>
-  );
-}
-
 function InputArea({
   input,
   inputRef,
@@ -655,13 +649,9 @@ function InputArea({
 function ResultCard({
   results,
   myMemberId,
-  onRestart,
-  canRestart,
 }: {
   results: GameResult[];
   myMemberId: string;
-  onRestart: () => void;
-  canRestart: boolean;
 }) {
   return (
     <div className="flex flex-col items-center gap-3 p-6 border border-[var(--sheet-cell-border)] bg-white w-full">
@@ -693,19 +683,6 @@ function ResultCard({
           })}
         </tbody>
       </table>
-      {canRestart ? (
-        <button
-          type="button"
-          onClick={onRestart}
-          className="mt-2 px-4 py-2 rounded bg-[var(--sheet-active)] text-white text-[14px] font-medium"
-        >
-          다시 시작
-        </button>
-      ) : (
-        <p className="mt-2 text-[12px] text-[var(--sheet-muted)]">
-          방장이 다시 시작할 수 있어요.
-        </p>
-      )}
     </div>
   );
 }

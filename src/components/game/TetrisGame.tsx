@@ -8,6 +8,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { LobbyCard, type LobbyMember } from "./LobbyCard";
 
 // ── 테트리스 상수 (3d-fit 게임 방식 포팅) ──
 const COLS = 10;
@@ -27,15 +28,16 @@ const SHAPES: Record<PieceType, number[][]> = {
   L: [[0, 0, 1], [1, 1, 1], [0, 0, 0]],
 };
 
-// 셀 색상 — 시트 위에서도 또렷하게 보이도록 채도를 살린 색
+// 셀 색상 — 스프레드시트 컨셉에 맞춰 구글 시트 초록 계열 모노톤으로 통일.
+// 형형색색 대신 초록 3단계 + 방해 줄만 회색.
 const COLORS: Record<PieceType | "garbage", string> = {
-  I: "#22a7c4",
-  O: "#e0a106",
-  T: "#9333ea",
-  S: "#16a34a",
-  Z: "#dc2626",
-  J: "#2563eb",
-  L: "#ea580c",
+  I: "#0f9d58",
+  S: "#0f9d58",
+  L: "#0f9d58",
+  O: "#34a853",
+  T: "#34a853",
+  Z: "#0b8043",
+  J: "#0b8043",
   garbage: "#9aa0a6",
 };
 
@@ -464,7 +466,9 @@ function TetrisBoard({
         <div
           className="relative"
           style={{
-            boxShadow: flash ? "0 0 0 2px #dc2626, 0 0 16px 2px #dc262688" : undefined,
+            boxShadow: flash
+              ? "0 0 0 2px #5f6368, 0 0 16px 2px #5f636888"
+              : undefined,
           }}
         >
           {display.map((row, i) => (
@@ -569,10 +573,10 @@ function TetrisBoard({
                   width: `${Math.min(100, s.gauge)}%`,
                   background:
                     s.gauge >= 80
-                      ? "#dc2626"
+                      ? "#0b8043"
                       : s.gauge >= 50
-                        ? "#e0a106"
-                        : "var(--sheet-active)",
+                        ? "#34a853"
+                        : "#9aa0a6",
                 }}
               />
             </div>
@@ -761,11 +765,12 @@ type TetrisEvent =
   | { type: "player_attack"; fromMemberId: string; lines: number }
   | { type: "player_out"; memberId: string; rank: number; score: number }
   | { type: "match_ended"; results: TetrisResult[] }
+  | { type: "lobby"; members: LobbyMember[] }
   | { type: "group_destroyed" };
 
-type Phase = "menu" | "single" | "versus" | "result";
+type Phase = "lobby" | "versus" | "result";
 
-// ── 컨테이너: 메뉴 → 싱글 / (대결 → 결과) ──
+// ── 컨테이너: 대기실 → 대결 → 결과 (단어줍기와 동일한 흐름) ──
 export function TetrisGame({
   myMemberId,
   myNickname,
@@ -775,18 +780,17 @@ export function TetrisGame({
   myNickname: string;
   isOwner: boolean;
 }) {
-  const [phase, setPhase] = useState<Phase>("menu");
+  const [phase, setPhase] = useState<Phase>("lobby");
   const [matchId, setMatchId] = useState<string | null>(null);
   const [players, setPlayers] = useState<PlayerView[]>([]);
   const [boards, setBoards] = useState<Record<string, Board>>({});
   const [results, setResults] = useState<TetrisResult[] | null>(null);
   const [attackSeq, setAttackSeq] = useState(0);
   const [startError, setStartError] = useState<string | null>(null);
+  const [lobbyMembers, setLobbyMembers] = useState<LobbyMember[]>([]);
 
   const pendingGarbageRef = useRef(0);
   const joinedMatchRef = useRef<string | null>(null);
-  const phaseRef = useRef(phase);
-  phaseRef.current = phase;
 
   // 진행 중인 대결에 내가 아직 없으면 자동 합류한다(시작은 방장만).
   const autoJoin = useCallback(
@@ -815,11 +819,10 @@ export function TetrisGame({
           if (ev.status === "running") {
             pendingGarbageRef.current = 0;
             autoJoin(ev.matchId, ev.players);
-            // 싱글 플레이 중이 아니면 대결 화면으로
-            if (phaseRef.current !== "single") setPhase("versus");
+            setPhase("versus");
           } else if (ev.status === "ended") {
             setResults(ev.results ?? null);
-            if (phaseRef.current !== "single") setPhase("result");
+            setPhase("result");
           }
           break;
         }
@@ -829,15 +832,13 @@ export function TetrisGame({
           setBoards({});
           pendingGarbageRef.current = 0;
           joinedMatchRef.current = null;
-          if (phaseRef.current !== "single") {
-            // 다음 snapshot/player_joined로 참가자 목록이 채워진다
-            void fetch("/api/tetris/join", { method: "POST" })
-              .then(() => {
-                joinedMatchRef.current = ev.matchId;
-              })
-              .catch(() => undefined);
-            setPhase("versus");
-          }
+          // 다음 snapshot/player_joined로 참가자 목록이 채워진다
+          void fetch("/api/tetris/join", { method: "POST" })
+            .then(() => {
+              joinedMatchRef.current = ev.matchId;
+            })
+            .catch(() => undefined);
+          setPhase("versus");
           break;
         }
         case "player_joined": {
@@ -878,7 +879,11 @@ export function TetrisGame({
         }
         case "match_ended": {
           setResults(ev.results);
-          if (phaseRef.current !== "single") setPhase("result");
+          setPhase("result");
+          break;
+        }
+        case "lobby": {
+          setLobbyMembers(ev.members);
           break;
         }
         default:
@@ -946,15 +951,15 @@ export function TetrisGame({
     }
   }, []);
 
-  const opponents = players.filter((p) => p.memberId !== myMemberId);
+  const toggleReady = useCallback((ready: boolean) => {
+    void fetch("/api/tetris/ready", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ready }),
+    }).catch(() => undefined);
+  }, []);
 
-  if (phase === "single") {
-    return (
-      <div className="py-4">
-        <TetrisBoard mode="single" onBack={() => setPhase("menu")} />
-      </div>
-    );
-  }
+  const opponents = players.filter((p) => p.memberId !== myMemberId);
 
   if (phase === "versus") {
     return (
@@ -1000,10 +1005,10 @@ export function TetrisGame({
     const me = sorted.find((r) => r.memberId === myMemberId);
     const won = me?.rank === 1 && sorted.length >= 2;
     return (
-      <div className="py-8 flex flex-col items-center gap-4">
+      <div className="py-8 flex flex-col items-center gap-5">
         <div
           className="text-[26px] font-bold"
-          style={{ color: won ? "var(--sheet-green)" : "#d93025" }}
+          style={{ color: won ? "var(--sheet-green)" : "var(--sheet-muted)" }}
         >
           {sorted.length < 2 ? "대결 종료" : won ? "승리!" : "패배"}
         </div>
@@ -1034,46 +1039,36 @@ export function TetrisGame({
             })}
           </tbody>
         </table>
-        <div className="flex gap-2 mt-2">
-          {isOwner && <PrimaryBtn onClick={startVersus}>다시 대결</PrimaryBtn>}
-          <GhostBtn onClick={() => setPhase("menu")}>메뉴로</GhostBtn>
-        </div>
+        <LobbyCard
+          title="다시 대결"
+          description="다음 대결을 준비하세요."
+          members={lobbyMembers}
+          myMemberId={myMemberId}
+          isOwner={isOwner}
+          onStart={startVersus}
+          onReady={toggleReady}
+          startError={startError}
+        />
       </div>
     );
   }
 
-  // menu
+  // lobby (기본 화면)
   return (
     <div className="py-8 flex flex-col items-center gap-6">
       <TetrisLogo />
-      <div className="text-[13px] text-[var(--sheet-muted)]">
-        블록을 쌓아 줄을 지우세요
-      </div>
-      <div className="flex flex-col items-center gap-3 w-full max-w-[260px]">
-        <button
-          type="button"
-          onClick={() => setPhase("single")}
-          className="w-full px-5 py-2.5 rounded bg-[var(--sheet-active)] text-white text-[15px] font-medium hover:brightness-95"
-        >
-          혼자 하기
-        </button>
-        {isOwner ? (
-          <button
-            type="button"
-            onClick={startVersus}
-            className="w-full px-5 py-2.5 rounded border border-[var(--sheet-active)] text-[var(--sheet-active)] text-[15px] font-medium hover:bg-[var(--sheet-active-bg)]"
-          >
-            그룹 대결 시작
-          </button>
-        ) : (
-          <div className="text-[12px] text-[var(--sheet-muted)] text-center">
-            방장이 대결을 시작하면 자동으로 참여돼요.
-          </div>
-        )}
-        {startError && (
-          <div className="text-[13px] text-[#d93025]">{startError}</div>
-        )}
-      </div>
+      <LobbyCard
+        title="테트리스"
+        description={
+          "블록을 쌓아 줄을 지우세요.\n시작하면 같은 그룹의 멤버들과 생존 대결을 합니다."
+        }
+        members={lobbyMembers}
+        myMemberId={myMemberId}
+        isOwner={isOwner}
+        onStart={startVersus}
+        onReady={toggleReady}
+        startError={startError}
+      />
     </div>
   );
 }

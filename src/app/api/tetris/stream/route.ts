@@ -1,5 +1,5 @@
 import { registerSubscriber, type TetrisEvent } from "@/lib/tetris";
-import { getCurrentMember } from "@/server/auth";
+import { getCurrentMember, isGroupOwner } from "@/server/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -9,6 +9,7 @@ export async function GET(request: Request) {
   if (!me) {
     return new Response("unauthorized", { status: 401 });
   }
+  const owner = await isGroupOwner(me.groupId, me.memberId);
 
   const encoder = new TextEncoder();
   let cleanup = () => {
@@ -56,7 +57,13 @@ export async function GET(request: Request) {
         safeEnqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
       };
 
-      const reg = registerSubscriber(me.groupId, me.memberId, send);
+      const reg = registerSubscriber(
+        me.groupId,
+        me.memberId,
+        me.nickname,
+        owner,
+        send,
+      );
       unsubscribe = reg.unsubscribe;
 
       const ok = safeEnqueue(
