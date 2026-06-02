@@ -55,6 +55,7 @@ type Props = {
   activeTabId: string;
   onTabChange: (id: string) => void;
   rightUser?: ReactNode;
+  chat?: ReactNode;
   onLeave?: () => void;
   children: ReactNode;
 };
@@ -68,6 +69,7 @@ export function SheetShell({
   activeTabId,
   onTabChange,
   rightUser,
+  chat,
   onLeave,
   children,
 }: Props) {
@@ -84,7 +86,12 @@ export function SheetShell({
 
   return (
     <div className="flex flex-col h-full min-h-screen">
-      <HeaderBar title={title} rightUser={rightUser} onLeave={onLeave} />
+      <HeaderBar
+        title={title}
+        rightUser={rightUser}
+        chat={chat}
+        onLeave={onLeave}
+      />
       <MenuBar />
       <Toolbar />
       <FormulaBar />
@@ -97,10 +104,12 @@ export function SheetShell({
 function HeaderBar({
   title,
   rightUser,
+  chat,
   onLeave,
 }: {
   title: string;
   rightUser?: ReactNode;
+  chat?: ReactNode;
   onLeave?: () => void;
 }) {
   return (
@@ -141,12 +150,14 @@ function HeaderBar({
       >
         <History size={16} />
       </button>
-      <button
-        type="button"
-        className="flex items-center gap-1 px-2 py-1 rounded text-[13px] text-[var(--sheet-muted)] hover:bg-black/5 cursor-default"
-      >
-        <MessageSquare size={16} />
-      </button>
+      {chat ?? (
+        <button
+          type="button"
+          className="flex items-center gap-1 px-2 py-1 rounded text-[13px] text-[var(--sheet-muted)] hover:bg-black/5 cursor-default"
+        >
+          <MessageSquare size={16} />
+        </button>
+      )}
       <button
         type="button"
         className="flex items-center gap-1 px-2 py-1 rounded text-[13px] text-[var(--sheet-muted)] hover:bg-black/5 cursor-default"

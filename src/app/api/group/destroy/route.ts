@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { destroyGroup } from "@/lib/multiplayer";
 import { destroyGroupTetris } from "@/lib/tetris";
+import { destroyGroupChat } from "@/lib/chat";
 import {
   clearSessionCookie,
   getCurrentMember,
@@ -25,6 +26,7 @@ export async function POST() {
     await prisma.group.deleteMany({ where: { id: me.groupId } });
     destroyGroup(me.groupId);
     destroyGroupTetris(me.groupId);
+    destroyGroupChat(me.groupId);
   } catch (e) {
     console.error("group destroy failed", e);
     return NextResponse.json({ error: "destroy_failed" }, { status: 500 });

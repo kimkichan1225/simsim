@@ -18,6 +18,7 @@ model Group {
   members      Member[]
   activityFeed ActivityFeed[]
   matchResults MatchResult[]
+  chatMessages ChatMessage[]
 }
 
 model Member {
@@ -32,6 +33,7 @@ model Member {
   gameRuns      GameRun[]
   activityFeed  ActivityFeed[]
   matchResults  MatchResult[]
+  chatMessages  ChatMessage[]
 
   @@unique([groupId, nicknameKey])
   @@index([groupId])
@@ -86,4 +88,18 @@ model MatchResult {
   @@index([memberId])
   @@index([groupId, endedAt])
   @@index([groupId, game])
+}
+
+model ChatMessage {
+  id        String   @id @default(cuid())
+  groupId   String
+  memberId  String
+  nickname  String
+  text      String
+  createdAt DateTime @default(now())
+
+  group  Group  @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@index([groupId, createdAt])
 }

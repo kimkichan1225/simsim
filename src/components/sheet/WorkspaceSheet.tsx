@@ -3,6 +3,7 @@
 import { useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ActivityTab } from "@/components/activity/ActivityTab";
+import { ChatButton } from "@/components/chat/ChatButton";
 import { MultiplayerGame } from "@/components/game/MultiplayerGame";
 import { TetrisGame } from "@/components/game/TetrisGame";
 import { LeaderboardTab } from "@/components/leaderboard/LeaderboardTab";
@@ -48,6 +49,7 @@ export function WorkspaceSheet({
       activeTabId={activeTabId}
       onTabChange={setActiveTabId}
       onLeave={onLeave}
+      chat={<ChatButton myMemberId={memberId} myNickname={nickname} />}
       rightUser={
         <div
           className="w-8 h-8 rounded-full bg-[var(--sheet-active)] text-white grid place-items-center text-[13px] font-medium ml-1"
