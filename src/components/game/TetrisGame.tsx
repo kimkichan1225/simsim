@@ -53,8 +53,24 @@ const ATTACK_LINES = 4; // 발사 시 보낼 방해 줄 수
 
 const emptyBoard = (): Board =>
   Array.from({ length: ROWS }, () => Array<Cell>(COLS).fill(null));
-const randomType = (): PieceType =>
-  TYPES[Math.floor(Math.random() * TYPES.length)];
+
+// ── 7-bag(랜덤 제너레이터) ──
+// 7종을 한 가방에 담아 섞고 하나씩 꺼낸다. 가방이 비면 새 가방을 채운다.
+// → 7개마다 모든 블록이 정확히 한 번씩 등장하므로 장기 확률은 균등(1/7),
+//   같은 블록 최대 연속 2번·최대 가뭄 12개로 극단적 운빨을 막는다.
+const shuffle = (arr: PieceType[]): PieceType[] => {
+  const a = arr.slice();
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+};
+// 가방에서 한 조각을 꺼낸다(비어 있으면 새 가방을 채워 섞는다). bag 배열을 직접 변형.
+const drawFromBag = (bag: PieceType[]): PieceType => {
+  if (bag.length === 0) bag.push(...shuffle(TYPES));
+  return bag.shift()!;
+};
 
 const rotateCW = (m: number[][]): number[][] => {
   const n = m.length;
@@ -95,6 +111,7 @@ type GameState = {
   board: Board;
   piece: { type: PieceType; shape: number[][]; row: number; col: number };
   next: PieceType;
+  bag: PieceType[]; // 7-bag 잔여 조각
   hold: PieceType | null;
   canHold: boolean;
   score: number;
@@ -150,7 +167,8 @@ function TetrisBoard({
   }, []);
 
   const reset = useCallback(() => {
-    const t = randomType();
+    const bag: PieceType[] = [];
+    const t = drawFromBag(bag);
     g.current = {
       board: emptyBoard(),
       piece: {
@@ -159,7 +177,8 @@ function TetrisBoard({
         row: 0,
         col: Math.floor((COLS - SHAPES[t][0].length) / 2),
       },
-      next: randomType(),
+      next: drawFromBag(bag),
+      bag,
       hold: null,
       canHold: true,
       score: 0,
@@ -260,7 +279,7 @@ function TetrisBoard({
       if (isVersus) postOut?.(s.score);
     } else {
       s.piece = { type, shape, row: 0, col };
-      s.next = randomType();
+      s.next = drawFromBag(s.bag);
       s.canHold = true;
     }
 
@@ -327,7 +346,7 @@ function TetrisBoard({
     } else {
       s.hold = cur;
       s.piece = spawn(s.next);
-      s.next = randomType();
+      s.next = drawFromBag(s.bag);
     }
     s.canHold = false;
     force();
