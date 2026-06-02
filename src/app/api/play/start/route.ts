@@ -44,6 +44,7 @@ export async function POST() {
             data: results.map((r) => ({
               memberId: r.memberId,
               groupId,
+              game: "word",
               score: r.score,
               rank: r.rank,
               totalParticipants: results.length,

@@ -74,6 +74,7 @@ type TetrisMatch = {
   startedAt: number;
   players: Map<string, TetrisPlayer>;
   results: TetrisResult[] | null;
+  onEnded?: (results: TetrisResult[], groupId: string) => Promise<void> | void;
 };
 
 const matches = new Map<string, TetrisMatch>();
@@ -153,6 +154,7 @@ export function startMatch(input: {
   groupId: string;
   memberId: string;
   nickname: string;
+  onEnded?: (results: TetrisResult[], groupId: string) => Promise<void> | void;
 }): { matchId: string; startedAt: number } {
   const existing = matches.get(input.groupId);
   if (existing) cleanupMatch(existing);
@@ -163,6 +165,7 @@ export function startMatch(input: {
     groupId: input.groupId,
     status: "running",
     startedAt: now,
+    onEnded: input.onEnded,
     players: new Map([
       [
         input.memberId,
@@ -317,6 +320,16 @@ function endMatch(match: TetrisMatch): void {
   match.results = results;
 
   broadcastToGroup(match.groupId, { type: "match_ended", results });
+
+  if (match.onEnded) {
+    try {
+      void Promise.resolve(match.onEnded(results, match.groupId)).catch((e) => {
+        console.error("tetris onEnded failed", e);
+      });
+    } catch (e) {
+      console.error("tetris onEnded failed", e);
+    }
+  }
 
   setTimeout(() => {
     if (matches.get(match.groupId) === match) {

@@ -5,24 +5,28 @@ import { useEffect, useState } from "react";
 type Row = {
   memberId: string;
   nickname: string;
-  totalScore: number;
-  bestRound: number | null;
+  best: number;
+  wins: number;
+  losses: number;
   matches: number;
   lastPlayedAt: string | null;
 };
 
-const COLS = [
-  { label: "닉네임", width: 160 },
-  { label: "총 점수", width: 110 },
-  { label: "최고 한 판", width: 110 },
-  { label: "참가", width: 80 },
-  { label: "최근 참가", width: 200 },
-];
+type Data = { word: Row[]; tetris: Row[] };
 
-const COL_LETTERS = ["A", "B", "C", "D", "E"];
+const COLS = [
+  { label: "순위", width: 70, align: "left" as const },
+  { label: "닉네임", width: 150, align: "left" as const },
+  { label: "최고 점수", width: 100, align: "right" as const },
+  { label: "승", width: 60, align: "right" as const },
+  { label: "패", width: 60, align: "right" as const },
+  { label: "판수", width: 70, align: "right" as const },
+];
+const COL_LETTERS = ["A", "B", "C", "D", "E", "F"];
+const MEDALS = ["🥇", "🥈", "🥉"];
 
 export function LeaderboardTab({ refreshKey }: { refreshKey: number }) {
-  const [rows, setRows] = useState<Row[] | null>(null);
+  const [data, setData] = useState<Data | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -33,9 +37,9 @@ export function LeaderboardTab({ refreshKey }: { refreshKey: number }) {
         if (!res.ok) throw new Error(String(res.status));
         return res.json();
       })
-      .then((data: { rows: Row[] }) => {
+      .then((d: Data) => {
         if (!cancelled) {
-          setRows(data.rows);
+          setData(d);
           setError(null);
         }
       })
@@ -47,8 +51,40 @@ export function LeaderboardTab({ refreshKey }: { refreshKey: number }) {
     };
   }, [refreshKey]);
 
+  if (error) {
+    return (
+      <div className="px-3 py-2 text-[12px] text-[#d93025]">
+        불러오기 실패 ({error})
+      </div>
+    );
+  }
+  if (data === null) {
+    return (
+      <div className="px-3 py-2 text-[12px] text-[var(--sheet-muted)]">
+        불러오는 중...
+      </div>
+    );
+  }
+
   return (
-    <div className="min-w-max select-none">
+    <div className="flex flex-col gap-8 select-none">
+      <ScoreTable title="🟦 단어줍기" rows={data.word} />
+      <ScoreTable title="⬜ 테트리스" rows={data.tetris} />
+    </div>
+  );
+}
+
+function ScoreTable({ title, rows }: { title: string; rows: Row[] }) {
+  // 한 번이라도 참가한 사람만 순위에 올린다.
+  const played = rows.filter((r) => r.matches > 0);
+
+  return (
+    <div className="min-w-max">
+      <div className="text-[13px] font-medium text-[var(--sheet-fg)] mb-1.5">
+        {title}
+      </div>
+
+      {/* 열 머리글 (A~F) */}
       <div className="flex sticky top-0 z-10 bg-[var(--sheet-header-bg)] border-b border-[var(--sheet-cell-border)]">
         <div className="w-10 h-6 border-r border-[var(--sheet-cell-border)]" />
         {COLS.map((c, i) => (
@@ -61,10 +97,10 @@ export function LeaderboardTab({ refreshKey }: { refreshKey: number }) {
           </div>
         ))}
       </div>
+
+      {/* 라벨 행 (sheet row 1) */}
       <div className="flex bg-white border-b border-[var(--sheet-cell-border)]">
-        <div className="w-10 h-[22px] sticky left-0 bg-[var(--sheet-header-bg)] border-r border-[var(--sheet-cell-border)] grid place-items-center text-[12px] text-[var(--sheet-muted)]">
-          1
-        </div>
+        <RowNum n={1} />
         {COLS.map((c) => (
           <div
             key={c.label}
@@ -75,41 +111,43 @@ export function LeaderboardTab({ refreshKey }: { refreshKey: number }) {
           </div>
         ))}
       </div>
-      {error && (
-        <div className="px-3 py-2 text-[12px] text-[#d93025]">
-          불러오기 실패 ({error})
-        </div>
-      )}
-      {rows === null && !error && (
-        <div className="px-3 py-2 text-[12px] text-[var(--sheet-muted)]">
-          불러오는 중...
-        </div>
-      )}
-      {rows !== null && rows.length === 0 && (
+
+      {played.length === 0 ? (
         <div className="px-3 py-2 text-[12px] text-[var(--sheet-muted)]">
           아직 기록이 없어요.
         </div>
-      )}
-      {rows?.map((row, idx) => (
-        <div key={row.memberId} className="flex bg-white">
-          <div className="w-10 h-[22px] sticky left-0 bg-[var(--sheet-header-bg)] border-b border-r border-[var(--sheet-cell-border)] grid place-items-center text-[12px] text-[var(--sheet-muted)]">
-            {idx + 2}
+      ) : (
+        played.map((row, idx) => (
+          <div key={row.memberId} className="flex bg-white">
+            <RowNum n={idx + 2} />
+            <Cell width={COLS[0].width}>
+              {idx < 3 ? `${MEDALS[idx]} ` : ""}
+              {idx + 1}
+            </Cell>
+            <Cell width={COLS[1].width}>{row.nickname}</Cell>
+            <Cell width={COLS[2].width} align="right">
+              {row.best}
+            </Cell>
+            <Cell width={COLS[3].width} align="right">
+              {row.wins}
+            </Cell>
+            <Cell width={COLS[4].width} align="right">
+              {row.losses}
+            </Cell>
+            <Cell width={COLS[5].width} align="right">
+              {row.matches}
+            </Cell>
           </div>
-          <Cell width={COLS[0].width}>{row.nickname}</Cell>
-          <Cell width={COLS[1].width} align="right">
-            {row.totalScore}
-          </Cell>
-          <Cell width={COLS[2].width} align="right">
-            {row.bestRound == null ? "-" : row.bestRound}
-          </Cell>
-          <Cell width={COLS[3].width} align="right">
-            {row.matches}
-          </Cell>
-          <Cell width={COLS[4].width}>
-            {row.lastPlayedAt ? formatRelative(row.lastPlayedAt) : "-"}
-          </Cell>
-        </div>
-      ))}
+        ))
+      )}
+    </div>
+  );
+}
+
+function RowNum({ n }: { n: number }) {
+  return (
+    <div className="w-10 h-[22px] sticky left-0 bg-[var(--sheet-header-bg)] border-b border-r border-[var(--sheet-cell-border)] grid place-items-center text-[12px] text-[var(--sheet-muted)]">
+      {n}
     </div>
   );
 }
@@ -134,16 +172,4 @@ function Cell({
       {children}
     </div>
   );
-}
-
-function formatRelative(iso: string): string {
-  const t = new Date(iso).getTime();
-  const diff = Date.now() - t;
-  const min = Math.round(diff / 60000);
-  if (min < 1) return "방금";
-  if (min < 60) return `${min}분 전`;
-  const hr = Math.round(min / 60);
-  if (hr < 24) return `${hr}시간 전`;
-  const day = Math.round(hr / 24);
-  return `${day}일 전`;
 }
