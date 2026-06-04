@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { LobbyCard, type LobbyMember } from "./LobbyCard";
+import { WaitingRoomCard } from "./WaitingRoomCard";
 
 type Participant = {
   memberId: string;
@@ -210,8 +211,14 @@ export function MultiplayerGame({
     return () => es.close();
   }, [applyEvent, handleDestroyed]);
 
+  // 자리비움(대기방) 여부 — 대기방에 있으면 게임 화면 대신 대기방 화면을 보여준다.
+  const amAway =
+    state.lobbyMembers.find((m) => m.memberId === myMemberId)?.away ?? false;
+
   // 진행 중인 게임에 내가 아직 참가자가 아니면 자동으로 합류한다(시작은 방장만).
+  // 대기방(자리비움) 상태면 합류하지 않는다.
   useEffect(() => {
+    if (amAway) return;
     if (state.status !== "running" || !state.gameId) return;
     const amParticipant = state.participants.some(
       (p) => p.memberId === myMemberId,
@@ -226,7 +233,7 @@ export function MultiplayerGame({
       // 실패 시 다음 스냅샷에서 재시도할 수 있도록 추적값을 되돌린다.
       joinedGameIdRef.current = null;
     });
-  }, [state.status, state.gameId, state.participants, myMemberId]);
+  }, [amAway, state.status, state.gameId, state.participants, myMemberId]);
 
   // UI 클럭 (남은 시간)
   useEffect(() => {
@@ -373,6 +380,18 @@ export function MultiplayerGame({
 
   const myScore =
     sortedParticipants.find((p) => p.memberId === myMemberId)?.score ?? 0;
+
+  // 대기방(자리비움) — 독립 화면. 복귀 버튼은 ready API로 자리비움을 해제한다.
+  if (amAway) {
+    return (
+      <div className="flex flex-col gap-4 w-full pt-4 pb-8">
+        <WaitingRoomCard
+          gameTitle="단어줍기"
+          onReturn={() => toggleReady(false)}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-4 w-full pt-4 pb-8">

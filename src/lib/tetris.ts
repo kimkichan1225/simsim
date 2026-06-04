@@ -84,7 +84,8 @@ type TetrisMatch = {
 
 const matches = new Map<string, TetrisMatch>();
 const groupSubscribers = new Map<string, Map<string, Subscriber>>();
-const lobby = new GroupLobby();
+// 자리비움 전환이 일어나면 로비 상태를 모두에게 다시 알린다.
+const lobby = new GroupLobby((groupId) => broadcastLobby(groupId));
 
 function newId(bytes: number): string {
   return randomBytes(bytes).toString("base64url");
@@ -192,6 +193,8 @@ export function startMatch(input: {
     results: null,
   };
   matches.set(input.groupId, match);
+  // 대결 진행 중에는 자리비움(idle) 판정을 멈춘다
+  lobby.setGameRunning(input.groupId, true);
   // 새 대결 시작 → 준비 상태 초기화
   lobby.clearReady(input.groupId);
   broadcastLobby(input.groupId);
@@ -336,6 +339,8 @@ export function reportOut(input: {
 function endMatch(match: TetrisMatch): void {
   if (match.status === "ended") return;
   match.status = "ended";
+  // 대결 종료 → 자리비움(idle) 판정 재개
+  lobby.setGameRunning(match.groupId, false);
 
   // 마지막 생존자에게 1위를 부여하고, 나머지는 탈락 시 확정한 순위 사용.
   for (const p of match.players.values()) {

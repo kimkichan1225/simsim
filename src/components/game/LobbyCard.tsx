@@ -9,6 +9,7 @@ export type LobbyMember = {
   nickname: string;
   ready: boolean;
   isOwner: boolean;
+  away: boolean; // 자리비움(대기방) — 시작 조건에서 제외
 };
 
 type Props = {
@@ -38,13 +39,16 @@ export function LobbyCard({
   canStart = true,
   busy,
 }: Props) {
-  const me = members.find((m) => m.memberId === myMemberId);
+  // 자리비움(대기방) 멤버는 목록/시작 조건에서 분리한다
+  const active = members.filter((m) => !m.away);
+  const awayMembers = members.filter((m) => m.away);
+  const me = active.find((m) => m.memberId === myMemberId);
   const myReady = me?.ready ?? false;
-  const others = members.filter((m) => !m.isOwner);
+  const others = active.filter((m) => !m.isOwner);
   // 방장 제외 전원 준비(상대가 없으면 솔로 시작 허용)
   const allReady = others.every((m) => m.ready);
   // 방장이 아니어도 대기실에 혼자면 솔로 시작 가능
-  const alone = members.length === 1 && !!me;
+  const alone = active.length === 1 && !!me;
   const solo = (isOwner && others.length === 0) || (!isOwner && alone);
   const showStart = isOwner || alone;
 
@@ -64,14 +68,14 @@ export function LobbyCard({
 
       <div className="w-full flex flex-col gap-1">
         <div className="text-[10px] text-[var(--sheet-muted)] uppercase tracking-wide">
-          참가자 {members.length}
+          참가자 {active.length}
         </div>
-        {members.length === 0 ? (
+        {active.length === 0 ? (
           <div className="text-[12px] text-[var(--sheet-muted)] py-2 text-center">
             아직 참가자가 없어요
           </div>
         ) : (
-          members.map((m) => {
+          active.map((m) => {
             const isMe = m.memberId === myMemberId;
             return (
               <div
@@ -103,6 +107,12 @@ export function LobbyCard({
               </div>
             );
           })
+        )}
+        {awayMembers.length > 0 && (
+          <div className="text-[11px] text-[var(--sheet-muted)] mt-1">
+            💤 대기방 {awayMembers.length} —{" "}
+            {awayMembers.map((m) => m.nickname).join(", ")}
+          </div>
         )}
       </div>
 

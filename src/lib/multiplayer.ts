@@ -64,7 +64,8 @@ type ActiveGame = {
 
 const games = new Map<string, ActiveGame>();
 const groupSubscribers = new Map<string, Map<string, Subscriber>>();
-const lobby = new GroupLobby();
+// 자리비움 전환이 일어나면 로비 상태를 모두에게 다시 알린다.
+const lobby = new GroupLobby((groupId) => broadcastLobby(groupId));
 
 const DURATION_SEC = 30;
 const TARGET_WORD_COUNT = 8;
@@ -204,6 +205,8 @@ export function startOrJoinGame(input: {
     onEnded: input.onEnded,
   };
   games.set(input.groupId, game);
+  // 게임 진행 중에는 자리비움(idle) 판정을 멈춘다
+  lobby.setGameRunning(input.groupId, true);
   // 새 라운드 시작 → 준비 상태 초기화
   lobby.clearReady(input.groupId);
   broadcastLobby(input.groupId);
@@ -351,6 +354,8 @@ export async function endGame(game: ActiveGame): Promise<void> {
   game.status = "ended";
   if (game.endTimer) clearTimeout(game.endTimer);
   game.endTimer = null;
+  // 게임 종료 → 자리비움(idle) 판정 재개
+  lobby.setGameRunning(game.groupId, false);
 
   const results: GameResult[] = [...game.participants.values()]
     .sort((a, b) => b.score - a.score)
