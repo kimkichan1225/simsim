@@ -62,6 +62,9 @@ type Props = {
 
 const BOSS_KEY_TARGET =
   process.env.NEXT_PUBLIC_BOSS_KEY_TARGET ?? "https://docs.google.com/spreadsheets/u/0/";
+// Ctrl+Shift 전용 이동 대상 (Ctrl+B와 별도)
+const PANIC_KEY_TARGET =
+  process.env.NEXT_PUBLIC_PANIC_KEY_TARGET ?? "https://mail.google.com";
 
 export function SheetShell({
   title,
@@ -78,6 +81,16 @@ export function SheetShell({
       if ((e.ctrlKey || e.metaKey) && (e.key === "b" || e.key === "B")) {
         e.preventDefault();
         window.location.replace(BOSS_KEY_TARGET);
+        return;
+      }
+      // Ctrl+Shift 동시 누름 → 즉시 위장 사이트로 이동
+      // (둘 중 나중에 눌린 모디파이어 keydown에서 발동)
+      if (
+        (e.key === "Shift" && e.ctrlKey) ||
+        (e.key === "Control" && e.shiftKey)
+      ) {
+        e.preventDefault();
+        window.location.replace(PANIC_KEY_TARGET);
       }
     }
     window.addEventListener("keydown", onKey);
