@@ -9,7 +9,6 @@ import {
   type ReactNode,
 } from "react";
 import { LobbyCard, type LobbyMember } from "./LobbyCard";
-import { WaitingRoomCard } from "./WaitingRoomCard";
 
 // ── 테트리스 상수 (3d-fit 게임 방식 포팅) ──
 const COLS = 10;
@@ -855,10 +854,12 @@ export function TetrisGame({
   myMemberId,
   myNickname,
   isOwner,
+  onAway,
 }: {
   myMemberId: string;
   myNickname: string;
   isOwner: boolean;
+  onAway: () => void; // 자리비움 판정 시 대기방 탭으로 이동
 }) {
   const [phase, setPhase] = useState<Phase>("lobby");
   const [matchId, setMatchId] = useState<string | null>(null);
@@ -877,11 +878,15 @@ export function TetrisGame({
   // 공격 발사 콜백(postAttack)이 최신 타겟을 참조하도록 ref로도 보관
   const targetIdRef = useRef<string | null>(null);
 
-  // 자리비움(대기방) 여부 — 대기방에 있으면 대결에 자동 합류하지 않는다.
+  // 자리비움 판정 → 대기방 탭으로 이동(언마운트되면 로비에서도 빠진다).
+  // 이동 전 잠깐의 틈에 대결에 자동 합류하지 않도록 ref 로도 보관한다.
   const amAway =
     lobbyMembers.find((m) => m.memberId === myMemberId)?.away ?? false;
   const amAwayRef = useRef(false);
   amAwayRef.current = amAway;
+  useEffect(() => {
+    if (amAway) onAway();
+  }, [amAway, onAway]);
 
   const setTarget = useCallback((id: string | null) => {
     targetIdRef.current = id;
@@ -1092,18 +1097,6 @@ export function TetrisGame({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [phase, amOut, players, myMemberId, setTarget]);
-
-  // 대기방(자리비움) — 독립 화면. 복귀 버튼은 ready API로 자리비움을 해제한다.
-  if (amAway && phase !== "versus") {
-    return (
-      <div className="py-8 flex flex-col items-center gap-6">
-        <WaitingRoomCard
-          gameTitle="테트리스"
-          onReturn={() => toggleReady(false)}
-        />
-      </div>
-    );
-  }
 
   if (phase === "versus") {
     // 탈락 후 관전 모드: 남은 사람들의 보드를 크게 보면서 끝까지 시청

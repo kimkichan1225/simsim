@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { LobbyCard, type LobbyMember } from "./LobbyCard";
-import { WaitingRoomCard } from "./WaitingRoomCard";
 
 type Participant = {
   memberId: string;
@@ -82,10 +81,12 @@ export function MultiplayerGame({
   myMemberId,
   myNickname,
   isOwner,
+  onAway,
 }: {
   myMemberId: string;
   myNickname: string;
   isOwner: boolean;
+  onAway: () => void; // 자리비움 판정 시 대기방 탭으로 이동
 }) {
   const router = useRouter();
   const [state, setState] = useState<State>(initialState);
@@ -211,9 +212,12 @@ export function MultiplayerGame({
     return () => es.close();
   }, [applyEvent, handleDestroyed]);
 
-  // 자리비움(대기방) 여부 — 대기방에 있으면 게임 화면 대신 대기방 화면을 보여준다.
+  // 자리비움 판정 → 대기방 탭으로 이동. 탭 전환으로 언마운트되면 로비에서도 빠진다.
   const amAway =
     state.lobbyMembers.find((m) => m.memberId === myMemberId)?.away ?? false;
+  useEffect(() => {
+    if (amAway) onAway();
+  }, [amAway, onAway]);
 
   // 진행 중인 게임에 내가 아직 참가자가 아니면 자동으로 합류한다(시작은 방장만).
   // 대기방(자리비움) 상태면 합류하지 않는다.
@@ -380,18 +384,6 @@ export function MultiplayerGame({
 
   const myScore =
     sortedParticipants.find((p) => p.memberId === myMemberId)?.score ?? 0;
-
-  // 대기방(자리비움) — 독립 화면. 복귀 버튼은 ready API로 자리비움을 해제한다.
-  if (amAway) {
-    return (
-      <div className="flex flex-col gap-4 w-full pt-4 pb-8">
-        <WaitingRoomCard
-          gameTitle="단어줍기"
-          onReturn={() => toggleReady(false)}
-        />
-      </div>
-    );
-  }
 
   return (
     <div className="flex flex-col gap-4 w-full pt-4 pb-8">
