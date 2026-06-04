@@ -73,6 +73,25 @@ export async function POST(request: Request) {
   }
 
   const sessionSecret = generateSessionSecret();
+
+  // 같은 그룹에 같은 닉네임(정규화 기준)이 이미 있으면 새 멤버를 만들지 않고
+  // 기존 멤버 계정을 이어받는다(세션 재발급). 쿠키 만료/삭제 후 재입장 용도.
+  const existing = await prisma.member.findUnique({
+    where: { groupId_nicknameKey: { groupId: group.id, nicknameKey } },
+  });
+  if (existing) {
+    await prisma.member.update({
+      where: { id: existing.id },
+      data: { sessionSecret },
+    });
+    await issueSessionCookie({
+      memberId: existing.id,
+      groupId: group.id,
+      sessionSecret,
+    });
+    return NextResponse.json({ groupId: group.id });
+  }
+
   try {
     const member = await prisma.$transaction(async (tx) => {
       const newMember = await tx.member.create({
@@ -104,6 +123,22 @@ export async function POST(request: Request) {
   } catch (err) {
     const errorCode = (err as { code?: string }).code;
     if (errorCode === "P2002") {
+      // 동시 입장 경합으로 멤버가 막 생성된 경우 — 그 멤버를 이어받는다.
+      const raced = await prisma.member.findUnique({
+        where: { groupId_nicknameKey: { groupId: group.id, nicknameKey } },
+      });
+      if (raced) {
+        await prisma.member.update({
+          where: { id: raced.id },
+          data: { sessionSecret },
+        });
+        await issueSessionCookie({
+          memberId: raced.id,
+          groupId: group.id,
+          sessionSecret,
+        });
+        return NextResponse.json({ groupId: group.id });
+      }
       return NextResponse.json({ error: "nickname_taken" }, { status: 409 });
     }
     console.error("group.join failed", err);
