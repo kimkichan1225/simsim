@@ -22,6 +22,7 @@ export type ApplePlayerView = {
   memberId: string;
   nickname: string;
   score: number;
+  done: boolean; // 포기(중도 종료) — 점수는 그 시점으로 확정
 };
 
 export type AppleResult = {
@@ -48,6 +49,7 @@ export type AppleEvent =
   | { type: "no_match" }
   | { type: "match_started"; matchId: string; startedAt: number; endsAt: number }
   | { type: "player_joined"; memberId: string; nickname: string }
+  | { type: "player_done"; memberId: string }
   | { type: "cells_cleared"; memberId: string; cells: number[]; newScore: number }
   | { type: "match_ended"; results: AppleResult[] }
   | { type: "lobby"; members: LobbyMemberView[] }
@@ -59,6 +61,7 @@ type ApplePlayer = {
   memberId: string;
   nickname: string;
   score: number;
+  done: boolean; // 포기(중도 종료)
   cleared: boolean[]; // 셀 인덱스별 지움 여부
 };
 
@@ -133,12 +136,18 @@ function newPlayer(memberId: string, nickname: string): ApplePlayer {
     memberId,
     nickname,
     score: 0,
+    done: false,
     cleared: new Array<boolean>(APPLE_ROWS * APPLE_COLS).fill(false),
   };
 }
 
 function playerView(p: ApplePlayer): ApplePlayerView {
-  return { memberId: p.memberId, nickname: p.nickname, score: p.score };
+  return {
+    memberId: p.memberId,
+    nickname: p.nickname,
+    score: p.score,
+    done: p.done,
+  };
 }
 
 function clearedIndices(p: ApplePlayer): number[] {
@@ -282,7 +291,7 @@ export function clearRect(input: {
     return { ok: false, reason: "not_running" };
   }
   const player = match.players.get(input.memberId);
-  if (!player) return { ok: false, reason: "not_participant" };
+  if (!player || player.done) return { ok: false, reason: "not_participant" };
 
   const rMin = Math.min(input.r1, input.r2);
   const rMax = Math.max(input.r1, input.r2);
@@ -316,6 +325,30 @@ export function clearRect(input: {
     newScore: player.score,
   });
   return { ok: true, cells, newScore: player.score };
+}
+
+// 포기(중도 종료) — 점수는 그 시점으로 확정하고 빠진다.
+// 전원이 포기하면 매치를 즉시 종료한다(혼자면 바로 종료).
+export function giveUp(input: {
+  groupId: string;
+  memberId: string;
+}): { ok: boolean; reason?: "not_running" | "not_participant" } {
+  const match = matches.get(input.groupId);
+  if (!match || match.status !== "running") {
+    return { ok: false, reason: "not_running" };
+  }
+  const player = match.players.get(input.memberId);
+  if (!player) return { ok: false, reason: "not_participant" };
+  if (!player.done) {
+    player.done = true;
+    broadcastToGroup(match.groupId, {
+      type: "player_done",
+      memberId: player.memberId,
+    });
+    const allDone = [...match.players.values()].every((p) => p.done);
+    if (allDone) endMatch(match);
+  }
+  return { ok: true };
 }
 
 function endMatch(match: AppleMatch): void {

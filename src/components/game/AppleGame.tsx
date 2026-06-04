@@ -21,6 +21,7 @@ type Player = {
   memberId: string;
   nickname: string;
   score: number;
+  done: boolean; // 포기(중도 종료)
 };
 
 type MatchResult = {
@@ -47,6 +48,7 @@ type ServerEvent =
   | { type: "no_match" }
   | { type: "match_started"; matchId: string; startedAt: number; endsAt: number }
   | { type: "player_joined"; memberId: string; nickname: string }
+  | { type: "player_done"; memberId: string }
   | { type: "cells_cleared"; memberId: string; cells: number[]; newScore: number }
   | { type: "match_ended"; results: MatchResult[] }
   | { type: "lobby"; members: LobbyMember[] }
@@ -92,6 +94,9 @@ export function AppleGame({
   const [now, setNow] = useState(() => Date.now());
 
   const draggingRef = useRef(false);
+  // 합류 요청을 보낸 매치 ID — join 응답 전에 도착하는 스냅샷이
+  // (아직 참가자 명단에 없다고) 대기실로 강등시키지 않도록 가드한다.
+  const joinedMatchRef = useRef<string | null>(null);
   const selectionRef = useRef<Selection | null>(null);
   const boardRef = useRef<number[] | null>(null);
   const clearedRef = useRef<boolean[]>([]);
@@ -137,13 +142,19 @@ export function AppleGame({
           const mine = new Array<boolean>(ROWS * COLS).fill(false);
           for (const idx of ev.cleared[myMemberId] ?? []) mine[idx] = true;
           setClearedMine(mine);
-          const amParticipant = ev.players.some(
-            (p) => p.memberId === myMemberId,
-          );
+          const myPlayer = ev.players.find((p) => p.memberId === myMemberId);
           if (ev.status === "running") {
-            // 재접속 복원: 참가자면 게임 화면, 아니면 대기실(진행 중 안내)
             setResults(null);
-            setPhase(amParticipant ? "playing" : "lobby");
+            if (myPlayer) {
+              // 재접속 복원: 참가자면 게임 화면, 포기했으면 대기실
+              joinedMatchRef.current = ev.matchId;
+              setPhase(myPlayer.done ? "lobby" : "playing");
+            } else if (joinedMatchRef.current === ev.matchId) {
+              // 방금 합류 요청을 보낸 매치 — player_joined가 곧 도착한다
+              setPhase("playing");
+            } else {
+              setPhase("lobby");
+            }
           } else {
             const res = ev.results ?? null;
             setResults(res);
@@ -166,9 +177,17 @@ export function AppleGame({
           // 대기방(자리비움) 상태면 합류하지 않고 대기방에 머문다.
           if (amAwayRef.current) break;
           // 시작 시점에 이 탭에 있던 사람만 이 매치에 합류한다.
-          void fetch("/api/apple/join", { method: "POST" }).catch(
-            () => undefined,
-          );
+          joinedMatchRef.current = ev.matchId;
+          void fetch("/api/apple/join", { method: "POST" })
+            .then((res) => {
+              if (res.ok) return;
+              // 합류 실패(유예시간 초과 등) → 대기실로 되돌린다.
+              if (joinedMatchRef.current === ev.matchId) {
+                joinedMatchRef.current = null;
+                setPhase("lobby");
+              }
+            })
+            .catch(() => undefined);
           setPhase("playing");
           break;
         }
@@ -178,9 +197,27 @@ export function AppleGame({
               ? prev
               : [
                   ...prev,
-                  { memberId: ev.memberId, nickname: ev.nickname, score: 0 },
+                  {
+                    memberId: ev.memberId,
+                    nickname: ev.nickname,
+                    score: 0,
+                    done: false,
+                  },
                 ],
           );
+          break;
+        }
+        case "player_done": {
+          setPlayers((prev) =>
+            prev.map((p) =>
+              p.memberId === ev.memberId ? { ...p, done: true } : p,
+            ),
+          );
+          // 내가 포기 → 대기실로 (결과는 match_ended 때 표시)
+          if (ev.memberId === myMemberId) {
+            setSelection(null);
+            setPhase("lobby");
+          }
           break;
         }
         case "cells_cleared": {
@@ -339,6 +376,11 @@ export function AppleGame({
     }
   }, []);
 
+  // 포기 — 점수는 그 시점으로 확정. 확정 처리는 player_done 수신 시.
+  const giveUpMatch = useCallback(() => {
+    void fetch("/api/apple/giveup", { method: "POST" }).catch(() => undefined);
+  }, []);
+
   const toggleReady = useCallback((ready: boolean) => {
     void fetch("/api/apple/ready", {
       method: "POST",
@@ -351,8 +393,9 @@ export function AppleGame({
     () => [...players].sort((a, b) => b.score - a.score),
     [players],
   );
-  const myScore =
-    players.find((p) => p.memberId === myMemberId)?.score ?? 0;
+  const me = players.find((p) => p.memberId === myMemberId);
+  const myScore = me?.score ?? 0;
+  const amDone = me?.done ?? false;
 
   return (
     <div className="flex flex-col gap-4 w-full pt-4 pb-8">
@@ -366,14 +409,23 @@ export function AppleGame({
       />
 
       {phase === "playing" && board ? (
-        <NumberGrid
-          board={board}
-          cleared={clearedMine}
-          selection={selection}
-          selectionStat={selectionStat}
-          onCellDown={onCellDown}
-          onCellEnter={onCellEnter}
-        />
+        <>
+          <NumberGrid
+            board={board}
+            cleared={clearedMine}
+            selection={selection}
+            selectionStat={selectionStat}
+            onCellDown={onCellDown}
+            onCellEnter={onCellEnter}
+          />
+          <button
+            type="button"
+            onClick={giveUpMatch}
+            className="self-center px-4 py-1.5 rounded border border-[var(--sheet-cell-border)] text-[12px] text-[var(--sheet-muted)] hover:bg-black/5"
+          >
+            그만하기 (점수 확정)
+          </button>
+        </>
       ) : (
         <EmptyGrid />
       )}
@@ -386,7 +438,9 @@ export function AppleGame({
           }
           notice={
             matchRunning
-              ? "다른 멤버들이 대결 중이에요. 끝나면 다음 판에 참여할 수 있어요."
+              ? amDone
+                ? "포기했어요. 진행 중인 대결이 끝나면 결과가 표시돼요."
+                : "다른 멤버들이 대결 중이에요. 끝나면 다음 판에 참여할 수 있어요."
               : undefined
           }
           members={lobbyMembers}
@@ -473,7 +527,9 @@ function Scoreboard({
           )}
           {players.map((p, i) => {
             const isMe = p.memberId === myMemberId;
-            const label = isMe ? `${p.nickname} (나)` : p.nickname;
+            const label =
+              (isMe ? `${p.nickname} (나)` : p.nickname) +
+              (p.done ? " · 포기" : "");
             return (
               <div
                 key={p.memberId}
