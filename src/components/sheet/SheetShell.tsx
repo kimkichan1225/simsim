@@ -98,7 +98,9 @@ export function SheetShell({
   }, []);
 
   return (
-    <div className="flex flex-col h-full min-h-screen">
+    // 높이를 화면에 고정하고 내용(main)만 내부 스크롤 →
+    // 점수판/활동처럼 내용이 길어도 하단 시트 탭이 항상 보인다.
+    <div className="flex flex-col h-dvh">
       <HeaderBar
         title={title}
         rightUser={rightUser}
@@ -108,7 +110,7 @@ export function SheetShell({
       <MenuBar />
       <Toolbar />
       <FormulaBar />
-      <main className="flex-1 overflow-auto bg-white">{children}</main>
+      <main className="flex-1 min-h-0 overflow-auto bg-white">{children}</main>
       <SheetTabs tabs={tabs} activeId={activeTabId} onChange={onTabChange} />
     </div>
   );
