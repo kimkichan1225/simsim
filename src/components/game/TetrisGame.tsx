@@ -570,7 +570,7 @@ function TetrisBoard({
               {s.over ? (
                 isVersus ? (
                   <div className="text-[16px] font-medium text-[var(--sheet-fg)]">
-                    탈락 — 결과 집계 중…
+                    탈락 — 관전으로 전환 중…
                   </div>
                 ) : (
                   <div className="flex flex-col items-center gap-2">
@@ -696,28 +696,54 @@ function MiniPiece({
 }
 
 // 상대 보드 미니뷰 (시트 셀 축소판)
+// index/isTarget/onSelect: 대결 중 타겟 지정 UI · cellSize: 관전 모드에서 확대용
 function MiniBoard({
   board,
   nickname,
   alive,
   score,
+  cellSize,
+  index,
+  isTarget,
+  onSelect,
 }: {
   board: Board | null;
   nickname: string;
   alive: boolean;
   score: number;
+  cellSize?: number;
+  index?: number;
+  isTarget?: boolean;
+  onSelect?: () => void;
 }) {
   const grid = board ?? emptyBoard();
-  const C = 8;
+  const C = cellSize ?? 8;
   return (
-    <div className="flex flex-col items-center gap-1">
-      <div className="text-[11px] text-[var(--sheet-fg)] max-w-[88px] truncate">
+    <div
+      className="flex flex-col items-center gap-1"
+      onClick={onSelect}
+      style={{ cursor: onSelect ? "pointer" : undefined }}
+    >
+      <div
+        className="text-[11px] max-w-[120px] truncate"
+        style={{
+          color: isTarget ? "var(--sheet-active)" : "var(--sheet-fg)",
+          fontWeight: isTarget ? 600 : undefined,
+        }}
+      >
         {alive ? "" : "💀 "}
+        {isTarget ? "🎯 " : ""}
+        {index != null ? `${index}. ` : ""}
         {nickname}
       </div>
       <div
         className="border border-[var(--sheet-cell-border)]"
-        style={{ opacity: alive ? 1 : 0.5 }}
+        style={{
+          opacity: alive ? 1 : 0.5,
+          boxShadow: isTarget
+            ? "0 0 0 2px var(--sheet-active)"
+            : undefined,
+        }}
       >
         {grid.map((row, i) => (
           <div key={i} className="flex">
@@ -810,7 +836,12 @@ type TetrisEvent =
   | { type: "match_started"; matchId: string; startedAt: number }
   | { type: "player_joined"; memberId: string; nickname: string }
   | { type: "player_board"; memberId: string; board: Board }
-  | { type: "player_attack"; fromMemberId: string; lines: number }
+  | {
+      type: "player_attack";
+      fromMemberId: string;
+      targetMemberId: string;
+      lines: number;
+    }
   | { type: "player_out"; memberId: string; rank: number; score: number }
   | { type: "match_ended"; results: TetrisResult[] }
   | { type: "lobby"; members: LobbyMember[] }
@@ -837,9 +868,18 @@ export function TetrisGame({
   const [startError, setStartError] = useState<string | null>(null);
   const [lobbyMembers, setLobbyMembers] = useState<LobbyMember[]>([]);
   const [matchRunning, setMatchRunning] = useState(false); // 다른 사람이 대결 중인지
+  const [amOut, setAmOut] = useState(false); // 내가 탈락 → 관전 모드
+  const [targetId, setTargetIdState] = useState<string | null>(null); // 공격 타겟
 
   const pendingGarbageRef = useRef(0);
   const joinedMatchRef = useRef<string | null>(null);
+  // 공격 발사 콜백(postAttack)이 최신 타겟을 참조하도록 ref로도 보관
+  const targetIdRef = useRef<string | null>(null);
+
+  const setTarget = useCallback((id: string | null) => {
+    targetIdRef.current = id;
+    setTargetIdState(id);
+  }, []);
 
   const applyEvent = useCallback(
     (ev: TetrisEvent) => {
@@ -858,6 +898,9 @@ export function TetrisGame({
             if (amParticipant || joinedMatchRef.current === ev.matchId) {
               pendingGarbageRef.current = 0;
               joinedMatchRef.current = ev.matchId;
+              // 재연결 시 내 생존 여부 복원 (탈락 상태였으면 관전 유지)
+              const me = ev.players.find((p) => p.memberId === myMemberId);
+              setAmOut(me ? !me.alive : false);
               setPhase("versus");
             } else {
               setPhase("lobby");
@@ -877,6 +920,8 @@ export function TetrisGame({
           setResults(null);
           setBoards({});
           setMatchRunning(true);
+          setAmOut(false);
+          setTarget(null);
           pendingGarbageRef.current = 0;
           // 시작 시점에 이 탭에 있던 사람만 이 매치에 합류한다.
           joinedMatchRef.current = ev.matchId;
@@ -907,7 +952,7 @@ export function TetrisGame({
           break;
         }
         case "player_attack": {
-          if (ev.fromMemberId === myMemberId) break; // 내 공격은 무시
+          if (ev.targetMemberId !== myMemberId) break; // 내가 타겟일 때만 적립
           pendingGarbageRef.current += ev.lines;
           setAttackSeq((n) => n + 1);
           break;
@@ -920,6 +965,9 @@ export function TetrisGame({
                 : p,
             ),
           );
+          // 내가 탈락 → 관전 모드. 타겟이 탈락 → 타겟 해제(무작위로 복귀).
+          if (ev.memberId === myMemberId) setAmOut(true);
+          if (targetIdRef.current === ev.memberId) setTarget(null);
           break;
         }
         case "match_ended": {
@@ -938,7 +986,7 @@ export function TetrisGame({
           break;
       }
     },
-    [myMemberId],
+    [myMemberId, setTarget],
   );
 
   // SSE 연결 (탭이 마운트된 동안 유지)
@@ -970,7 +1018,10 @@ export function TetrisGame({
     void fetch("/api/tetris/attack", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ lines }),
+      body: JSON.stringify({
+        lines,
+        targetMemberId: targetIdRef.current ?? undefined,
+      }),
     }).catch(() => undefined);
   }, []);
 
@@ -1009,7 +1060,58 @@ export function TetrisGame({
 
   const opponents = players.filter((p) => p.memberId !== myMemberId);
 
+  // 타겟 선택: Tab = 살아있는 상대 순환, 1~9 = 표시 순서로 직접 지정
+  useEffect(() => {
+    if (phase !== "versus" || amOut) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Tab") {
+        e.preventDefault();
+        const alive = players.filter(
+          (p) => p.memberId !== myMemberId && p.alive,
+        );
+        if (alive.length === 0) return;
+        const idx = alive.findIndex(
+          (p) => p.memberId === targetIdRef.current,
+        );
+        setTarget(alive[(idx + 1) % alive.length].memberId);
+      } else if (/^[1-9]$/.test(e.key)) {
+        const opp = players.filter((p) => p.memberId !== myMemberId);
+        const cand = opp[Number(e.key) - 1];
+        if (cand?.alive) setTarget(cand.memberId);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [phase, amOut, players, myMemberId, setTarget]);
+
   if (phase === "versus") {
+    // 탈락 후 관전 모드: 남은 사람들의 보드를 크게 보면서 끝까지 시청
+    if (amOut) {
+      const aliveCount = opponents.filter((p) => p.alive).length;
+      return (
+        <div className="py-4 flex flex-col gap-4">
+          <div className="text-[14px] font-medium text-[var(--sheet-fg)]">
+            👁 관전 중 — {aliveCount}명 생존
+            <span className="ml-2 text-[12px] font-normal text-[var(--sheet-muted)]">
+              대결이 끝나면 결과가 표시됩니다.
+            </span>
+          </div>
+          <div className="flex flex-wrap gap-8 content-start">
+            {opponents.map((p) => (
+              <MiniBoard
+                key={p.memberId}
+                board={boards[p.memberId] ?? null}
+                nickname={p.nickname}
+                alive={p.alive}
+                score={p.score}
+                cellSize={14}
+              />
+            ))}
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className="py-4 flex gap-8 items-start flex-wrap">
         <TetrisBoard
@@ -1030,17 +1132,31 @@ export function TetrisGame({
               대결합니다.
             </div>
           ) : (
-            <div className="flex flex-wrap gap-4 max-w-[440px] content-start">
-              {opponents.map((p) => (
-                <MiniBoard
-                  key={p.memberId}
-                  board={boards[p.memberId] ?? null}
-                  nickname={p.nickname}
-                  alive={p.alive}
-                  score={p.score}
-                />
-              ))}
-            </div>
+            <>
+              <div className="flex flex-wrap gap-4 max-w-[440px] content-start">
+                {opponents.map((p, i) => (
+                  <MiniBoard
+                    key={p.memberId}
+                    board={boards[p.memberId] ?? null}
+                    nickname={p.nickname}
+                    alive={p.alive}
+                    score={p.score}
+                    index={i + 1}
+                    isTarget={p.memberId === targetId}
+                    onSelect={
+                      p.alive ? () => setTarget(p.memberId) : undefined
+                    }
+                  />
+                ))}
+              </div>
+              {opponents.length >= 2 && (
+                <div className="text-[11px] text-[var(--sheet-muted)] leading-relaxed max-w-[220px]">
+                  🎯 Tab·숫자키·클릭으로 공격 타겟 지정
+                  <br />
+                  (미지정 시 무작위 1명에게 공격)
+                </div>
+              )}
+            </>
           )}
         </div>
       </div>

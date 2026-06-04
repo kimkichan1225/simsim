@@ -11,6 +11,7 @@ const RATE_TETRIS_ATTACK: RateLimitConfig = {
 
 const Body = z.object({
   lines: z.number().int().min(1).max(10),
+  targetMemberId: z.string().max(64).optional(),
 });
 
 async function readJson(request: Request): Promise<unknown> {
@@ -43,6 +44,7 @@ export async function POST(request: Request) {
     groupId: me.groupId,
     memberId: me.memberId,
     lines: parsed.data.lines,
+    targetMemberId: parsed.data.targetMemberId,
   });
   if (!result.ok) {
     return NextResponse.json({ error: "not_running" }, { status: 400 });

@@ -50,7 +50,12 @@ export type TetrisEvent =
   | { type: "match_started"; matchId: string; startedAt: number }
   | { type: "player_joined"; memberId: string; nickname: string }
   | { type: "player_board"; memberId: string; board: Board }
-  | { type: "player_attack"; fromMemberId: string; lines: number }
+  | {
+      type: "player_attack";
+      fromMemberId: string;
+      targetMemberId: string;
+      lines: number;
+    }
   | { type: "player_out"; memberId: string; rank: number; score: number }
   | { type: "match_ended"; results: TetrisResult[] }
   | { type: "lobby"; members: LobbyMemberView[] }
@@ -258,20 +263,35 @@ export function pushBoard(input: {
   return { ok: true };
 }
 
-// 공격(방해 줄) 발사 → 살아있는 다른 모든 참가자에게 중계.
-// 실제 줄 적립은 각 수신 클라이언트가 다음 고정 때 처리한다(권위 경량).
+// 공격(방해 줄) 발사 → 지정한 타겟 1명에게 중계.
+// 타겟이 무효(미지정/탈락/본인)면 살아있는 다른 참가자 중 무작위 1명을 고른다.
+// 실제 줄 적립은 수신 클라이언트가 다음 고정 때 처리한다(권위 경량).
 export function sendAttack(input: {
   groupId: string;
   memberId: string;
   lines: number;
+  targetMemberId?: string;
 }): { ok: boolean } {
   const match = matches.get(input.groupId);
   if (!match || match.status !== "running") return { ok: false };
   const p = match.players.get(input.memberId);
   if (!p || !p.alive) return { ok: false };
+
+  let target = input.targetMemberId
+    ? match.players.get(input.targetMemberId)
+    : undefined;
+  if (!target || !target.alive || target.memberId === input.memberId) {
+    const candidates = [...match.players.values()].filter(
+      (x) => x.alive && x.memberId !== input.memberId,
+    );
+    if (candidates.length === 0) return { ok: true }; // 공격할 상대가 없음
+    target = candidates[Math.floor(Math.random() * candidates.length)];
+  }
+
   broadcastToGroup(match.groupId, {
     type: "player_attack",
     fromMemberId: input.memberId,
+    targetMemberId: target.memberId,
     lines: input.lines,
   });
   return { ok: true };
