@@ -6,18 +6,19 @@ const MAX_MEMBERS = 100;
 const MAX_RESULTS = 5000;
 
 type GameKey = "word" | "tetris";
+type ModeKey = "solo" | "versus"; // 혼자(참가자 1명) | 대결(2명 이상)
 
 type Row = {
   memberId: string;
   nickname: string;
   best: number; // 최고 한 판 점수
-  wins: number; // 2인 이상 대결에서 1위
-  losses: number; // 2인 이상 대결에서 1위 외
+  wins: number; // 대결에서 1위 (혼자 모드에선 항상 0)
+  losses: number; // 대결에서 1위 외 (혼자 모드에선 항상 0)
   matches: number; // 총 참가 판수
   lastPlayedAt: string | null;
 };
 
-// 멤버별 누적치 (게임별)
+// 멤버별 누적치 (게임·모드별)
 type Acc = {
   best: number;
   wins: number;
@@ -57,15 +58,16 @@ export async function GET() {
     }),
   ]);
 
-  // 게임별 → 멤버별 누적
-  const byGame: Record<GameKey, Map<string, Acc>> = {
-    word: new Map(),
-    tetris: new Map(),
+  // 게임·모드별 → 멤버별 누적
+  const byGameMode: Record<GameKey, Record<ModeKey, Map<string, Acc>>> = {
+    word: { solo: new Map(), versus: new Map() },
+    tetris: { solo: new Map(), versus: new Map() },
   };
 
   for (const r of results) {
-    const key: GameKey = r.game === "tetris" ? "tetris" : "word";
-    const map = byGame[key];
+    const gameKey: GameKey = r.game === "tetris" ? "tetris" : "word";
+    const modeKey: ModeKey = r.totalParticipants >= 2 ? "versus" : "solo";
+    const map = byGameMode[gameKey][modeKey];
     let acc = map.get(r.memberId);
     if (!acc) {
       acc = emptyAcc();
@@ -73,8 +75,8 @@ export async function GET() {
     }
     acc.matches += 1;
     if (r.score > acc.best) acc.best = r.score;
-    // 승패는 2인 이상 대결에서만 집계(혼자 플레이는 전적에 포함 안 함)
-    if (r.totalParticipants >= 2) {
+    // 승패는 대결에서만 의미 있음
+    if (modeKey === "versus") {
       if (r.rank === 1) acc.wins += 1;
       else acc.losses += 1;
     }
@@ -82,8 +84,8 @@ export async function GET() {
     if (acc.lastPlayedAt == null || t > acc.lastPlayedAt) acc.lastPlayedAt = t;
   }
 
-  function buildRows(key: GameKey): Row[] {
-    const map = byGame[key];
+  function buildRows(gameKey: GameKey, modeKey: ModeKey): Row[] {
+    const map = byGameMode[gameKey][modeKey];
     const rows: Row[] = members.map((m) => {
       const a = map.get(m.id) ?? emptyAcc();
       return {
@@ -106,7 +108,13 @@ export async function GET() {
   }
 
   return NextResponse.json({
-    word: buildRows("word"),
-    tetris: buildRows("tetris"),
+    word: {
+      solo: buildRows("word", "solo"),
+      versus: buildRows("word", "versus"),
+    },
+    tetris: {
+      solo: buildRows("tetris", "solo"),
+      versus: buildRows("tetris", "versus"),
+    },
   });
 }

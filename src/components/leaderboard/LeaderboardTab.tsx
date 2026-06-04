@@ -12,15 +12,25 @@ type Row = {
   lastPlayedAt: string | null;
 };
 
-type Data = { word: Row[]; tetris: Row[] };
+type GameData = { solo: Row[]; versus: Row[] };
+type Data = { word: GameData; tetris: GameData };
 
-const COLS = [
-  { label: "순위", width: 70, align: "left" as const },
-  { label: "닉네임", width: 150, align: "left" as const },
-  { label: "최고 점수", width: 100, align: "right" as const },
-  { label: "승", width: 60, align: "right" as const },
-  { label: "패", width: 60, align: "right" as const },
-  { label: "판수", width: 70, align: "right" as const },
+type Col = { label: string; width: number; align: "left" | "right" };
+
+// 대결 표: 승/패 포함, 혼자 표: 승/패 제외
+const VERSUS_COLS: Col[] = [
+  { label: "순위", width: 70, align: "left" },
+  { label: "닉네임", width: 150, align: "left" },
+  { label: "최고 점수", width: 100, align: "right" },
+  { label: "승", width: 60, align: "right" },
+  { label: "패", width: 60, align: "right" },
+  { label: "판수", width: 70, align: "right" },
+];
+const SOLO_COLS: Col[] = [
+  { label: "순위", width: 70, align: "left" },
+  { label: "닉네임", width: 150, align: "left" },
+  { label: "최고 점수", width: 100, align: "right" },
+  { label: "판수", width: 70, align: "right" },
 ];
 const COL_LETTERS = ["A", "B", "C", "D", "E", "F"];
 const MEDALS = ["🥇", "🥈", "🥉"];
@@ -68,13 +78,36 @@ export function LeaderboardTab({ refreshKey }: { refreshKey: number }) {
 
   return (
     <div className="flex flex-col gap-8 select-none">
-      <ScoreTable title="🟦 단어줍기" rows={data.word} />
-      <ScoreTable title="⬜ 테트리스" rows={data.tetris} />
+      <ScoreTable title="🟦 단어줍기 — 혼자" rows={data.word.solo} mode="solo" />
+      <ScoreTable
+        title="🟦 단어줍기 — 대결"
+        rows={data.word.versus}
+        mode="versus"
+      />
+      <ScoreTable
+        title="⬜ 테트리스 — 혼자"
+        rows={data.tetris.solo}
+        mode="solo"
+      />
+      <ScoreTable
+        title="⬜ 테트리스 — 대결"
+        rows={data.tetris.versus}
+        mode="versus"
+      />
     </div>
   );
 }
 
-function ScoreTable({ title, rows }: { title: string; rows: Row[] }) {
+function ScoreTable({
+  title,
+  rows,
+  mode,
+}: {
+  title: string;
+  rows: Row[];
+  mode: "solo" | "versus";
+}) {
+  const cols = mode === "versus" ? VERSUS_COLS : SOLO_COLS;
   // 한 번이라도 참가한 사람만 순위에 올린다.
   const played = rows.filter((r) => r.matches > 0);
 
@@ -84,10 +117,10 @@ function ScoreTable({ title, rows }: { title: string; rows: Row[] }) {
         {title}
       </div>
 
-      {/* 열 머리글 (A~F) */}
+      {/* 열 머리글 (A~) */}
       <div className="flex sticky top-0 z-10 bg-[var(--sheet-header-bg)] border-b border-[var(--sheet-cell-border)]">
         <div className="w-10 h-6 border-r border-[var(--sheet-cell-border)]" />
-        {COLS.map((c, i) => (
+        {cols.map((c, i) => (
           <div
             key={c.label}
             style={{ width: c.width }}
@@ -101,7 +134,7 @@ function ScoreTable({ title, rows }: { title: string; rows: Row[] }) {
       {/* 라벨 행 (sheet row 1) */}
       <div className="flex bg-white border-b border-[var(--sheet-cell-border)]">
         <RowNum n={1} />
-        {COLS.map((c) => (
+        {cols.map((c) => (
           <div
             key={c.label}
             style={{ width: c.width }}
@@ -120,21 +153,25 @@ function ScoreTable({ title, rows }: { title: string; rows: Row[] }) {
         played.map((row, idx) => (
           <div key={row.memberId} className="flex bg-white">
             <RowNum n={idx + 2} />
-            <Cell width={COLS[0].width}>
+            <Cell width={cols[0].width}>
               {idx < 3 ? `${MEDALS[idx]} ` : ""}
               {idx + 1}
             </Cell>
-            <Cell width={COLS[1].width}>{row.nickname}</Cell>
-            <Cell width={COLS[2].width} align="right">
+            <Cell width={cols[1].width}>{row.nickname}</Cell>
+            <Cell width={cols[2].width} align="right">
               {row.best}
             </Cell>
-            <Cell width={COLS[3].width} align="right">
-              {row.wins}
-            </Cell>
-            <Cell width={COLS[4].width} align="right">
-              {row.losses}
-            </Cell>
-            <Cell width={COLS[5].width} align="right">
+            {mode === "versus" && (
+              <>
+                <Cell width={cols[3].width} align="right">
+                  {row.wins}
+                </Cell>
+                <Cell width={cols[4].width} align="right">
+                  {row.losses}
+                </Cell>
+              </>
+            )}
+            <Cell width={cols[cols.length - 1].width} align="right">
               {row.matches}
             </Cell>
           </div>
