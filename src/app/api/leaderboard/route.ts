@@ -5,7 +5,7 @@ import { getCurrentMember } from "@/server/auth";
 const MAX_MEMBERS = 100;
 const MAX_RESULTS = 5000;
 
-type GameKey = "word" | "tetris";
+type GameKey = "word" | "tetris" | "apple";
 type ModeKey = "solo" | "versus"; // 혼자(참가자 1명) | 대결(2명 이상)
 
 type Row = {
@@ -62,10 +62,12 @@ export async function GET() {
   const byGameMode: Record<GameKey, Record<ModeKey, Map<string, Acc>>> = {
     word: { solo: new Map(), versus: new Map() },
     tetris: { solo: new Map(), versus: new Map() },
+    apple: { solo: new Map(), versus: new Map() },
   };
 
   for (const r of results) {
-    const gameKey: GameKey = r.game === "tetris" ? "tetris" : "word";
+    const gameKey: GameKey =
+      r.game === "tetris" ? "tetris" : r.game === "apple" ? "apple" : "word";
     const modeKey: ModeKey = r.totalParticipants >= 2 ? "versus" : "solo";
     const map = byGameMode[gameKey][modeKey];
     let acc = map.get(r.memberId);
@@ -115,6 +117,10 @@ export async function GET() {
     tetris: {
       solo: buildRows("tetris", "solo"),
       versus: buildRows("tetris", "versus"),
+    },
+    apple: {
+      solo: buildRows("apple", "solo"),
+      versus: buildRows("apple", "versus"),
     },
   });
 }

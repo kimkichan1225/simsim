@@ -132,10 +132,21 @@ function describe(row: Row): string {
   if (row.kind === "joined") return "그룹에 입장";
   if (row.kind === "match_result") {
     const p = row.payload as
-      | { topNickname?: string; topScore?: number; participants?: number }
+      | {
+          game?: string;
+          topNickname?: string;
+          topScore?: number;
+          participants?: number;
+        }
       | null;
-    if (!p) return "타이핑 매치 종료";
-    return `타이핑 매치 종료: ${p.topNickname ?? "-"} 1위 (${
+    const gameName =
+      p?.game === "tetris"
+        ? "테트리스"
+        : p?.game === "apple"
+          ? "사과게임"
+          : "단어줍기";
+    if (!p) return "매치 종료";
+    return `${gameName} 매치 종료: ${p.topNickname ?? "-"} 1위 (${
       p.topScore ?? 0
     }점, ${p.participants ?? 0}명 참가)`;
   }

@@ -13,7 +13,7 @@ type Row = {
 };
 
 type GameData = { solo: Row[]; versus: Row[] };
-type Data = { word: GameData; tetris: GameData };
+type Data = { word: GameData; tetris: GameData; apple: GameData };
 
 type Col = { label: string; width: number; align: "left" | "right" };
 
@@ -92,6 +92,16 @@ export function LeaderboardTab({ refreshKey }: { refreshKey: number }) {
       <ScoreTable
         title="⬜ 테트리스 — 대결"
         rows={data.tetris.versus}
+        mode="versus"
+      />
+      <ScoreTable
+        title="🟥 사과게임 — 혼자"
+        rows={data.apple.solo}
+        mode="solo"
+      />
+      <ScoreTable
+        title="🟥 사과게임 — 대결"
+        rows={data.apple.versus}
         mode="versus"
       />
     </div>

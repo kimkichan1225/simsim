@@ -4,6 +4,7 @@ import { useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ActivityTab } from "@/components/activity/ActivityTab";
 import { ChatButton } from "@/components/chat/ChatButton";
+import { AppleGame } from "@/components/game/AppleGame";
 import { MultiplayerGame } from "@/components/game/MultiplayerGame";
 import { TetrisGame } from "@/components/game/TetrisGame";
 import { LeaderboardTab } from "@/components/leaderboard/LeaderboardTab";
@@ -14,6 +15,7 @@ const TABS: SheetTab[] = [
   { id: "waiting", label: "대기방" },
   { id: "match", label: "단어줍기" },
   { id: "tetris", label: "테트리스" },
+  { id: "apple", label: "사과게임" },
   { id: "leaderboard", label: "점수판" },
   { id: "activity", label: "활동" },
 ];
@@ -81,6 +83,16 @@ export function WorkspaceSheet({
       {activeTabId === "tetris" && (
         <div className="px-6">
           <TetrisGame
+            myMemberId={memberId}
+            myNickname={nickname}
+            isOwner={isOwner}
+            onAway={goWaiting}
+          />
+        </div>
+      )}
+      {activeTabId === "apple" && (
+        <div className="px-6">
+          <AppleGame
             myMemberId={memberId}
             myNickname={nickname}
             isOwner={isOwner}
