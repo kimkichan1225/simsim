@@ -144,7 +144,9 @@ function describe(row: Row): string {
         ? "테트리스"
         : p?.game === "apple"
           ? "사과게임"
-          : "단어줍기";
+          : p?.game === "suika"
+            ? "수박게임"
+            : "단어줍기";
     if (!p) return "매치 종료";
     return `${gameName} 매치 종료: ${p.topNickname ?? "-"} 1위 (${
       p.topScore ?? 0

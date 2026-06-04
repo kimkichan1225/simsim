@@ -13,7 +13,12 @@ type Row = {
 };
 
 type GameData = { solo: Row[]; versus: Row[] };
-type Data = { word: GameData; tetris: GameData; apple: GameData };
+type Data = {
+  word: GameData;
+  tetris: GameData;
+  apple: GameData;
+  suika: GameData;
+};
 
 type Col = { label: string; width: number; align: "left" | "right" };
 
@@ -103,6 +108,12 @@ export function LeaderboardTab({ refreshKey }: { refreshKey: number }) {
         title="🟥 사과게임 — 대결"
         rows={data.apple.versus}
         mode="versus"
+      />
+      {/* 수박게임은 개인전 전용 — 혼자 기록만 표시 */}
+      <ScoreTable
+        title="🟢 수박게임 — 혼자"
+        rows={data.suika.solo}
+        mode="solo"
       />
     </div>
   );

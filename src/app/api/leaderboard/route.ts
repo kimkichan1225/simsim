@@ -5,7 +5,7 @@ import { getCurrentMember } from "@/server/auth";
 const MAX_MEMBERS = 100;
 const MAX_RESULTS = 5000;
 
-type GameKey = "word" | "tetris" | "apple";
+type GameKey = "word" | "tetris" | "apple" | "suika";
 type ModeKey = "solo" | "versus"; // 혼자(참가자 1명) | 대결(2명 이상)
 
 type Row = {
@@ -63,11 +63,18 @@ export async function GET() {
     word: { solo: new Map(), versus: new Map() },
     tetris: { solo: new Map(), versus: new Map() },
     apple: { solo: new Map(), versus: new Map() },
+    suika: { solo: new Map(), versus: new Map() },
   };
 
   for (const r of results) {
     const gameKey: GameKey =
-      r.game === "tetris" ? "tetris" : r.game === "apple" ? "apple" : "word";
+      r.game === "tetris"
+        ? "tetris"
+        : r.game === "apple"
+          ? "apple"
+          : r.game === "suika"
+            ? "suika"
+            : "word";
     const modeKey: ModeKey = r.totalParticipants >= 2 ? "versus" : "solo";
     const map = byGameMode[gameKey][modeKey];
     let acc = map.get(r.memberId);
@@ -121,6 +128,11 @@ export async function GET() {
     apple: {
       solo: buildRows("apple", "solo"),
       versus: buildRows("apple", "versus"),
+    },
+    // 수박게임은 개인전 전용 — solo만 의미 있다
+    suika: {
+      solo: buildRows("suika", "solo"),
+      versus: buildRows("suika", "versus"),
     },
   });
 }
