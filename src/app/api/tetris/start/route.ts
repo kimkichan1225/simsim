@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { consumeToken, type RateLimitConfig } from "@/lib/rate-limit";
-import { isAllReady, startMatch, type TetrisResult } from "@/lib/tetris";
+import { isAllReady, isAloneInLobby, startMatch, type TetrisResult } from "@/lib/tetris";
 import { getCurrentMember, isGroupOwner } from "@/server/auth";
 
 const RATE_TETRIS_START: RateLimitConfig = {
@@ -18,13 +18,17 @@ export async function POST() {
     return NextResponse.json({ error: "rate_limited" }, { status: 429 });
   }
 
-  // 대결 시작은 방장만 가능하다. 참가자는 /api/tetris/join으로 합류한다.
-  if (!(await isGroupOwner(me.groupId, me.memberId))) {
+  // 대결 시작은 방장만 가능하다. 단, 대기실에 혼자면 누구든 솔로 시작 허용.
+  // 참가자는 /api/tetris/join으로 합류한다.
+  if (
+    !(await isGroupOwner(me.groupId, me.memberId)) &&
+    !isAloneInLobby(me.groupId, me.memberId)
+  ) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
 
   // 방장을 제외한 접속자 전원이 준비해야 시작할 수 있다(혼자면 통과).
-  if (!isAllReady(me.groupId)) {
+  if (!isAllReady(me.groupId) && !isAloneInLobby(me.groupId, me.memberId)) {
     return NextResponse.json({ error: "not_ready" }, { status: 409 });
   }
 

@@ -119,6 +119,11 @@ export function isAllReady(groupId: string): boolean {
   return lobby.allReady(groupId);
 }
 
+// 대기실에 해당 멤버 혼자만 있는지(방장이 아니어도 솔로 시작 허용용)
+export function isAloneInLobby(groupId: string, memberId: string): boolean {
+  return lobby.isAlone(groupId, memberId);
+}
+
 function playerView(p: TetrisPlayer): TetrisPlayerView {
   return {
     memberId: p.memberId,

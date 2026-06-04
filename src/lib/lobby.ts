@@ -70,6 +70,13 @@ export class GroupLobby {
     return list;
   }
 
+  // 해당 멤버가 대기실에 혼자 있는지(방장이 아니어도 솔로 시작 허용용).
+  isAlone(groupId: string, memberId: string): boolean {
+    const r = this.rooms.get(groupId);
+    if (!r) return false;
+    return r.members.size === 1 && r.members.has(memberId);
+  }
+
   // 방장을 제외한 모든 접속자가 준비됐는지(혼자면 true → 솔로 시작 허용).
   allReady(groupId: string): boolean {
     const r = this.rooms.get(groupId);

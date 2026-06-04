@@ -43,7 +43,10 @@ export function LobbyCard({
   const others = members.filter((m) => !m.isOwner);
   // 방장 제외 전원 준비(상대가 없으면 솔로 시작 허용)
   const allReady = others.every((m) => m.ready);
-  const soloOwner = isOwner && others.length === 0;
+  // 방장이 아니어도 대기실에 혼자면 솔로 시작 가능
+  const alone = members.length === 1 && !!me;
+  const solo = (isOwner && others.length === 0) || (!isOwner && alone);
+  const showStart = isOwner || alone;
 
   return (
     <div className="flex flex-col items-center gap-4 p-6 border border-[var(--sheet-cell-border)] bg-white w-full max-w-md mx-auto">
@@ -107,17 +110,17 @@ export function LobbyCard({
         <div className="text-[13px] text-[#d93025]">{startError}</div>
       )}
 
-      {isOwner ? (
+      {showStart ? (
         <div className="flex flex-col items-center gap-2 w-full">
           <button
             type="button"
             onClick={onStart}
-            disabled={!allReady || !canStart || busy}
+            disabled={(!allReady && !solo) || !canStart || busy}
             className="w-full px-5 py-2.5 rounded bg-[var(--sheet-active)] text-white text-[15px] font-medium hover:brightness-95 disabled:opacity-50"
           >
-            {soloOwner ? "혼자 시작" : "시작"}
+            {solo ? "혼자 시작" : "시작"}
           </button>
-          {canStart && !allReady && !soloOwner && (
+          {canStart && !allReady && !solo && (
             <div className="text-[12px] text-[var(--sheet-muted)]">
               모든 참가자가 준비하면 시작할 수 있어요
             </div>
@@ -139,7 +142,7 @@ export function LobbyCard({
         </button>
       )}
 
-      {!isOwner && (
+      {!showStart && (
         <div className="text-[12px] text-[var(--sheet-muted)] text-center">
           방장이 시작하면 자동으로 참여돼요.
         </div>
