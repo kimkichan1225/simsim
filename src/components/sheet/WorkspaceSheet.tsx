@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ActivityTab } from "@/components/activity/ActivityTab";
 import { ChatButton } from "@/components/chat/ChatButton";
@@ -44,6 +44,21 @@ export function WorkspaceSheet({
   const goWaiting = useCallback(() => {
     setActiveTabId("waiting");
   }, []);
+
+  // 현재 시트(탭) 위치 보고 — 대기방 명단에 "누가 어디 있는지" 표시용.
+  // 탭 전환 시 즉시 + 25초 하트비트(끊기면 서버 TTL로 명단에서 내려간다).
+  useEffect(() => {
+    const report = () => {
+      void fetch("/api/presence", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ location: activeTabId }),
+      }).catch(() => undefined);
+    };
+    report();
+    const id = setInterval(report, 25_000);
+    return () => clearInterval(id);
+  }, [activeTabId]);
 
   const onLeave = useCallback(async () => {
     try {

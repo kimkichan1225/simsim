@@ -1,9 +1,9 @@
 "use client";
 
-// 대기방 시트 — 대기방 탭에 있는 사람 명단만 스프레드시트 셀로 보여준다.
+// 대기방 시트 — 그룹 접속자 전원과 각자 현재 어느 시트(탭)에 있는지 보여준다.
 // 위장이 목적이므로 다른 어떤 탭보다 구글 시트처럼 보여야 한다:
-// 열 머리글(A~)·행 번호·빈 셀 그리드 위에 닉네임만 데이터처럼 올린다.
-// presence 는 /api/waiting/stream SSE 구독 = "지금 대기방 탭에 있는 사람".
+// 열 머리글(A~)·행 번호·빈 셀 그리드 위에 닉네임·위치만 데이터처럼 올린다.
+// 위치는 각 클라이언트가 /api/presence로 보고하고 /api/waiting/stream SSE로 받는다.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -11,6 +11,18 @@ import { useRouter } from "next/navigation";
 type WaitingMember = {
   memberId: string;
   nickname: string;
+  location: string;
+};
+
+// 탭 ID → 표시 라벨. 모르는 값(새 게임 등)은 "이동 중"으로 둔다.
+const LOCATION_LABEL: Record<string, string> = {
+  waiting: "대기방",
+  match: "단어줍기",
+  tetris: "테트리스",
+  apple: "사과게임",
+  suika: "수박게임",
+  leaderboard: "점수판",
+  activity: "활동",
 };
 
 type WaitingEvent =
@@ -81,8 +93,12 @@ export function WaitingRoomSheet() {
         ))}
       </div>
       {rowList.map((r) => {
-        // A열에 명단을 1행부터 채운다 (그 외 셀은 빈칸)
-        const value = members[r - 1]?.nickname ?? "";
+        // A열 닉네임, B열 현재 시트 위치 (그 외 셀은 빈칸)
+        const member = members[r - 1];
+        const nickname = member?.nickname ?? "";
+        const location = member
+          ? (LOCATION_LABEL[member.location] ?? "이동 중")
+          : "";
         const isSelected = r === 1; // 구글 시트처럼 A1에 선택 테두리
         return (
           <div key={r} className="flex">
@@ -93,13 +109,20 @@ export function WaitingRoomSheet() {
               <div
                 key={h + r}
                 className={
-                  "w-24 h-[22px] border-b border-r border-[var(--sheet-cell-border)] bg-white flex items-center px-1 text-[12px] text-[var(--sheet-fg)] " +
+                  "w-24 h-[22px] border-b border-r border-[var(--sheet-cell-border)] bg-white flex items-center px-1 text-[12px] " +
+                  (c === 1
+                    ? "text-[var(--sheet-muted)] "
+                    : "text-[var(--sheet-fg)] ") +
                   (isSelected && c === 0
                     ? "outline outline-2 -outline-offset-1 outline-[var(--sheet-active)]"
                     : "")
                 }
               >
-                {c === 0 ? <span className="truncate">{value}</span> : null}
+                {c === 0 ? (
+                  <span className="truncate">{nickname}</span>
+                ) : c === 1 ? (
+                  <span className="truncate">{location}</span>
+                ) : null}
               </div>
             ))}
           </div>
