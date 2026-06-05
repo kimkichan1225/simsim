@@ -50,7 +50,10 @@ export type RummySnapshot = {
   players: RummyPlayerView[]; // 배열 순서 = 턴 순서
   turnMemberId: string | null;
   table: RummyTile[][];
+  liveTable: RummyTile[][] | null; // 턴 플레이어가 배치 중인 테이블(실시간 미리보기)
+  liveDraggingId: string | null; // 턴 플레이어가 드는 중인 테이블 타일(상대에겐 뒷면)
   myRack: RummyTile[]; // 수신자 전용(관전자는 빈 배열)
+  myLastDrawnId: string | null; // 수신자 전용 — 마지막으로 뽑은 타일
   poolCount: number;
   consecutivePasses: number;
   results?: RummyResult[];
@@ -62,6 +65,12 @@ export type RummyEvent =
   | { type: "match_started"; matchId: string; startedAt: number }
   | { type: "match_cancelled" } // 인원 미달 취소
   | { type: "match_ended"; results: RummyResult[] }
+  | {
+      type: "live";
+      memberId: string;
+      table: RummyTile[][];
+      dragging: string | null; // 드는 중인 테이블 타일(뒷면 처리용)
+    } // 턴 플레이어의 배치 미리보기
   | { type: "lobby"; members: LobbyMemberView[] }
   | { type: "group_destroyed" };
 
@@ -73,6 +82,7 @@ type RummyPlayer = {
   rack: Map<string, RummyTile>;
   hasMelded: boolean;
   resigned: boolean;
+  lastDrawn: string | null; // 마지막으로 뽑은 타일(본인 강조 표시용)
 };
 
 type RummyMatch = {
@@ -85,6 +95,8 @@ type RummyMatch = {
   turnIdx: number;
   pool: RummyTile[];
   table: RummyTile[][];
+  liveTable: RummyTile[][] | null; // 턴 플레이어가 제출 전 배치 중인 테이블
+  liveDragging: string | null; // 턴 플레이어가 드는 중인 테이블 타일
   consecutivePasses: number;
   results: RummyResult[] | null;
   dealTimer: ReturnType<typeof setTimeout> | null;
@@ -183,7 +195,10 @@ export function snapshotFor(
     turnMemberId:
       match.status === "running" ? (match.order[match.turnIdx] ?? null) : null,
     table: match.table,
+    liveTable: match.liveTable,
+    liveDraggingId: match.liveDragging,
     myRack: me ? [...me.rack.values()] : [],
+    myLastDrawnId: me?.lastDrawn ?? null,
     poolCount: match.pool.length,
     consecutivePasses: match.consecutivePasses,
     results: match.results ?? undefined,
@@ -230,6 +245,8 @@ export function startMatch(input: {
     turnIdx: 0,
     pool: buildPool(),
     table: [],
+    liveTable: null,
+    liveDragging: null,
     consecutivePasses: 0,
     results: null,
     dealTimer: null,
@@ -271,6 +288,7 @@ function addPlayer(match: RummyMatch, memberId: string, nickname: string): void 
     rack: new Map(),
     hasMelded: false,
     resigned: false,
+    lastDrawn: null,
   });
   match.order.push(memberId);
 }
@@ -323,6 +341,8 @@ function activePlayers(match: RummyMatch): RummyPlayer[] {
 }
 
 function advanceTurn(match: RummyMatch): void {
+  match.liveTable = null; // 턴이 넘어가면 배치 미리보기 폐기
+  match.liveDragging = null;
   if (activePlayers(match).length === 0) return;
   do {
     match.turnIdx = (match.turnIdx + 1) % match.order.length;
@@ -440,6 +460,7 @@ export function playTurn(input: {
   match.table = newTable;
   for (const t of placed) me.rack.delete(t.id);
   me.hasMelded = true;
+  me.lastDrawn = null; // 턴을 제출했으면 뽑은 타일 강조 해제
   match.consecutivePasses = 0;
 
   if (me.rack.size === 0) {
@@ -449,6 +470,51 @@ export function playTurn(input: {
   advanceTurn(match);
   broadcastSnapshots(match);
   return { ok: true, won: false };
+}
+
+// 턴 플레이어가 배치 중인 테이블을 실시간 공유한다(검증은 타일 존재만, 세트 유효성은 안 본다).
+export function updateLive(input: {
+  groupId: string;
+  memberId: string;
+  tableIds: string[][];
+  draggingId?: string | null;
+}): { ok: boolean } {
+  const match = matches.get(input.groupId);
+  if (!match || match.status !== "running") return { ok: false };
+  const me = match.players.get(input.memberId);
+  if (!me || me.resigned) return { ok: false };
+  if (match.order[match.turnIdx] !== input.memberId) return { ok: false };
+
+  // 제출 가능한 타일(현재 테이블 + 본인 손패)로만 구성됐는지 확인
+  const available = new Map<string, RummyTile>();
+  for (const set of match.table) for (const t of set) available.set(t.id, t);
+  for (const t of me.rack.values()) available.set(t.id, t);
+
+  const seen = new Set<string>();
+  const liveTable: RummyTile[][] = [];
+  for (const setIds of input.tableIds) {
+    const set: RummyTile[] = [];
+    for (const id of setIds) {
+      const tile = available.get(id);
+      if (!tile || seen.has(id)) return { ok: false };
+      seen.add(id);
+      set.push(tile);
+    }
+    if (set.length > 0) liveTable.push(set);
+  }
+
+  match.liveTable = liveTable;
+  // 드는 중 타일은 미리보기 테이블에 있는 것만 인정한다.
+  // (손패 타일 id는 값이 유추될 수 있으므로 밖으로 내보내지 않는다)
+  match.liveDragging =
+    input.draggingId && seen.has(input.draggingId) ? input.draggingId : null;
+  broadcastToGroup(match.groupId, {
+    type: "live",
+    memberId: input.memberId,
+    table: liveTable,
+    dragging: match.liveDragging,
+  });
+  return { ok: true };
 }
 
 // 뽑고 패스(낼 게 없을 때). 더미가 비었으면 그냥 패스.
@@ -469,6 +535,7 @@ export function drawAndPass(input: {
   const tile = match.pool.pop();
   if (tile) {
     me.rack.set(tile.id, tile);
+    me.lastDrawn = tile.id; // 방금 뽑은 타일 — 본인 손패에서 강조
     match.consecutivePasses = 0; // 뽑으면 패스 카운트 리셋(교착은 더미 소진 후만)
   } else {
     match.consecutivePasses += 1;
@@ -518,6 +585,8 @@ export function resign(input: {
 function endMatch(match: RummyMatch, winner: RummyPlayer | null): void {
   if (match.status === "ended") return;
   match.status = "ended";
+  match.liveTable = null;
+  match.liveDragging = null;
   if (match.dealTimer) clearTimeout(match.dealTimer);
   match.dealTimer = null;
   lobby.setGameRunning(match.groupId, false);

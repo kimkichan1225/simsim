@@ -8,6 +8,7 @@ import {
   useState,
 } from "react";
 import { MessageSquare, Send } from "lucide-react";
+import { notifyTab } from "@/lib/tab-alert";
 
 type ChatMessage = {
   id: string;
@@ -62,8 +63,9 @@ export function ChatButton({
             ? prev
             : [...prev, ev.message],
         );
-        if (!openRef.current && ev.message.memberId !== myMemberId) {
-          setUnread((n) => n + 1);
+        if (ev.message.memberId !== myMemberId) {
+          if (!openRef.current) setUnread((n) => n + 1);
+          notifyTab(); // 탭이 백그라운드면 제목에 (n) 표시
         }
       } else if (ev.type === "group_destroyed") {
         es.close();

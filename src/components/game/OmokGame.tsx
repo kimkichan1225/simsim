@@ -6,6 +6,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { LobbyCard, type LobbyMember } from "./LobbyCard";
+import { notifyTab } from "@/lib/tab-alert";
 
 const SIZE = 15;
 const CELLS = SIZE * SIZE;
@@ -204,6 +205,11 @@ export function OmokGame({
         : null;
   const isMyTurn =
     myPlayer != null && white != null && turnMemberId === myMemberId;
+
+  // 내 턴이 되면 탭이 백그라운드일 때 제목에 알림 표시
+  useEffect(() => {
+    if (phase === "playing" && isMyTurn) notifyTab();
+  }, [phase, isMyTurn]);
 
   const placeStone = useCallback(
     (idx: number) => {

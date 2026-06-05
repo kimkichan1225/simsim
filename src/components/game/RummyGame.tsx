@@ -13,6 +13,7 @@ import {
   validateSet,
   type RummyTile,
 } from "@/lib/rummy-rules";
+import { notifyTab } from "@/lib/tab-alert";
 import { LobbyCard, type LobbyMember } from "./LobbyCard";
 
 // 타일 색 (0~3) — 구글 차트 팔레트로 위장
@@ -43,7 +44,10 @@ type Snapshot = {
   players: PlayerView[];
   turnMemberId: string | null;
   table: RummyTile[][];
+  liveTable: RummyTile[][] | null;
+  liveDraggingId: string | null;
   myRack: RummyTile[];
+  myLastDrawnId: string | null;
   poolCount: number;
   consecutivePasses: number;
   results?: MatchResult[];
@@ -55,12 +59,55 @@ type ServerEvent =
   | { type: "match_started"; matchId: string; startedAt: number }
   | { type: "match_cancelled" }
   | { type: "match_ended"; results: MatchResult[] }
+  | {
+      type: "live";
+      memberId: string;
+      table: RummyTile[][];
+      dragging: string | null;
+    }
   | { type: "lobby"; members: LobbyMember[] }
   | { type: "group_destroyed" };
 
 type Phase = "lobby" | "joining" | "playing" | "result";
 
 type DragSource = { tileId: string; from: "rack" | "table" };
+
+// 세트를 값 오름차순으로 자동 정렬한다.
+// 조커는 숫자 사이 빈 자리에 끼워 런을 만들고, 남으면 뒤(13 초과 시 앞)에 붙인다.
+function autoSortSet(set: RummyTile[]): RummyTile[] {
+  const jokers = set.filter((t) => t.joker);
+  const nums = set
+    .filter((t) => !t.joker)
+    .sort((a, b) => a.value - b.value || a.color - b.color);
+  if (nums.length === 0) return set;
+  if (jokers.length === 0) return nums;
+  // 그룹(모두 같은 값)이면 조커를 뒤에 붙인다
+  if (nums.every((t) => t.value === nums[0].value)) return [...nums, ...jokers];
+  const pool = [...jokers];
+  const out: RummyTile[] = [nums[0]];
+  for (let i = 1; i < nums.length; i += 1) {
+    let gap = nums[i].value - nums[i - 1].value - 1;
+    while (gap > 0 && pool.length > 0) {
+      out.push(pool.pop()!);
+      gap -= 1;
+    }
+    out.push(nums[i]);
+  }
+  let head = nums[0].value;
+  let tail = nums[nums.length - 1].value;
+  while (pool.length > 0) {
+    if (tail < 13) {
+      out.push(pool.pop()!);
+      tail += 1;
+    } else if (head > 1) {
+      out.unshift(pool.pop()!);
+      head -= 1;
+    } else {
+      out.push(pool.pop()!);
+    }
+  }
+  return out;
+}
 
 type DropTarget =
   | { type: "set"; setIdx: number; beforeTileId?: string }
@@ -83,7 +130,15 @@ export function RummyGame({
   const [players, setPlayers] = useState<PlayerView[]>([]);
   const [turnMemberId, setTurnMemberId] = useState<string | null>(null);
   const [serverTable, setServerTable] = useState<RummyTile[][]>([]);
+  // 턴 플레이어가 배치 중인 테이블(실시간 미리보기, 내 턴이 아닐 때 표시)
+  const [liveTable, setLiveTable] = useState<RummyTile[][] | null>(null);
+  // 턴 플레이어가 드는 중인 테이블 타일 — 상대 화면에서는 뒷면으로 보인다
+  const [liveDragging, setLiveDragging] = useState<string | null>(null);
   const [serverRack, setServerRack] = useState<RummyTile[]>([]);
+  // 내가 마지막으로 뽑은 타일(손패에서 강조)
+  const [lastDrawnId, setLastDrawnId] = useState<string | null>(null);
+  // 내가 지금 드래그 중인 타일(상대에게 뒷면 처리 요청용)
+  const [dragging, setDragging] = useState<string | null>(null);
   const [poolCount, setPoolCount] = useState(0);
   const [results, setResults] = useState<MatchResult[] | null>(null);
   const [lobbyMembers, setLobbyMembers] = useState<LobbyMember[]>([]);
@@ -126,7 +181,10 @@ export function RummyGame({
           setPlayers(ev.players);
           setTurnMemberId(ev.turnMemberId);
           setServerTable(ev.table);
+          setLiveTable(ev.liveTable ?? null);
+          setLiveDragging(ev.liveDraggingId ?? null);
           setServerRack(ev.myRack);
+          setLastDrawnId(ev.myLastDrawnId ?? null);
           setPoolCount(ev.poolCount);
           // 서버 상태가 바뀌었으므로 로컬 편집을 새 상태로 초기화
           setWork({
@@ -172,6 +230,14 @@ export function RummyGame({
           setPhase("result");
           break;
         }
+        case "live": {
+          // 내가 보낸 미리보기는 무시(내 화면은 로컬 사본이 진실)
+          if (ev.memberId !== myMemberId) {
+            setLiveTable(ev.table);
+            setLiveDragging(ev.dragging ?? null);
+          }
+          break;
+        }
         case "lobby": {
           setLobbyMembers(ev.members);
           break;
@@ -180,7 +246,7 @@ export function RummyGame({
           break;
       }
     },
-    [],
+    [myMemberId],
   );
 
   useEffect(() => {
@@ -210,17 +276,55 @@ export function RummyGame({
     phase === "playing" && me != null && !me.resigned && turnMemberId === myMemberId;
   const dirty = work.moved;
 
+  // 내 턴이 되면 탭이 백그라운드일 때 제목에 알림 표시
+  useEffect(() => {
+    if (isMyTurn) notifyTab();
+  }, [isMyTurn]);
+
+  // 내 턴 동안 배치 변경을 스로틀(300ms) 전송해 다른 사람이 실시간으로 보게 한다.
+  // 한 번이라도 보냈으면 되돌리기/드래그 해제 같은 원복 상태도 전파한다.
+  const liveSentAtRef = useRef(0);
+  const liveSentRef = useRef(false);
+  useEffect(() => {
+    if (!isMyTurn) {
+      liveSentRef.current = false;
+      return;
+    }
+    if (!work.moved && dragging === null && !liveSentRef.current) return;
+    const elapsed = Date.now() - liveSentAtRef.current;
+    const timer = setTimeout(() => {
+      liveSentAtRef.current = Date.now();
+      liveSentRef.current = true;
+      void fetch("/api/rummy/live", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          table: work.table.map((set) => set.map((t) => t.id)),
+          dragging,
+        }),
+      }).catch(() => undefined);
+    }, Math.max(0, 300 - elapsed));
+    return () => clearTimeout(timer);
+  }, [isMyTurn, work.moved, work.table, dragging]);
+
   // ---------- 드래그&드롭 ----------
 
   const onTileDragStart = useCallback(
     (tileId: string, from: "rack" | "table") =>
       (e: React.DragEvent) => {
         dragRef.current = { tileId, from };
+        setDragging(tileId); // 상대 화면에서 이 타일을 뒷면 처리
         e.dataTransfer.effectAllowed = "move";
         e.dataTransfer.setData("text/plain", tileId);
       },
     [],
   );
+
+  // 드롭 없이 드래그가 취소돼도(ESC 등) 뒷면 처리를 해제한다
+  const onTileDragEnd = useCallback(() => {
+    dragRef.current = null;
+    setDragging(null);
+  }, []);
 
   // 타일을 현재 위치에서 빼내 대상 위치로 옮긴다(로컬 사본만 수정).
   const moveTile = useCallback((source: DragSource, target: DropTarget) => {
@@ -229,13 +333,17 @@ export function RummyGame({
       const rack = [...prev.rack];
       const placed = new Set(prev.placed);
 
-      // 원위치에서 타일 제거
+      // 원위치에서 타일 제거 (세트 분할 판단을 위해 위치를 기억한다)
       let tile: RummyTile | undefined;
       let fromRack = false;
+      let srcSet: RummyTile[] | null = null;
+      let srcIdx = -1;
       for (const set of table) {
         const i = set.findIndex((t) => t.id === source.tileId);
         if (i >= 0) {
           tile = set.splice(i, 1)[0];
+          srcSet = set;
+          srcIdx = i;
           break;
         }
       }
@@ -261,11 +369,40 @@ export function RummyGame({
           const set = table[target.setIdx];
           if (!set) {
             table.push([tile]);
-          } else if (target.beforeTileId) {
-            const i = set.findIndex((t) => t.id === target.beforeTileId);
-            set.splice(i < 0 ? set.length : i, 0, tile);
           } else {
-            set.push(tile);
+            if (target.beforeTileId) {
+              const i = set.findIndex((t) => t.id === target.beforeTileId);
+              set.splice(i < 0 ? set.length : i, 0, tile);
+            } else {
+              set.push(tile);
+            }
+            // 숫자 타일을 내려놓으면 세트를 오름차순 자동 정렬
+            // (조커를 직접 옮길 땐 의도한 자리를 존중해 정렬하지 않는다)
+            if (!tile.joker) table[target.setIdx] = autoSortSet(set);
+          }
+        }
+      }
+
+      // 런 중간에서 타일을 빼면 그 자리에서 세트를 둘로 나눈다.
+      // 예: 1,2,3,4,5,6에서 4를 빼면 1,2,3 / 5,6
+      if (srcSet && srcIdx > 0 && srcIdx < srcSet.length) {
+        const left = srcSet[srcIdx - 1];
+        const right = srcSet[srcIdx];
+        const nonJokers = srcSet.filter((t) => !t.joker);
+        // 그룹(모두 같은 값)이거나 빼낸 자리 양옆이 여전히 이어지면 그대로 둔다
+        const isGroup =
+          nonJokers.length > 0 &&
+          nonJokers.every((t) => t.value === nonJokers[0].value);
+        const contiguous =
+          !left.joker &&
+          !right.joker &&
+          left.color === right.color &&
+          right.value === left.value + 1;
+        if (!isGroup && !contiguous) {
+          // 같은 세트에 다시 넣었거나(정렬로 교체됨) 세트가 사라졌으면 건너뛴다
+          const k = table.indexOf(srcSet);
+          if (k >= 0 && !srcSet.some((t) => t.id === tile!.id)) {
+            table.splice(k, 1, srcSet.slice(0, srcIdx), srcSet.slice(srcIdx));
           }
         }
       }
@@ -284,6 +421,7 @@ export function RummyGame({
       e.stopPropagation();
       const source = dragRef.current;
       dragRef.current = null;
+      setDragging(null); // 내려놓으면 숫자 공개
       if (!source || !isMyTurn) return;
       moveTile(source, target);
     },
@@ -396,10 +534,12 @@ export function RummyGame({
 
       {(phase === "playing" || phase === "result") && (
         <TableArea
-          table={isMyTurn ? work.table : serverTable}
+          table={isMyTurn ? work.table : (liveTable ?? serverTable)}
           editable={isMyTurn}
           placedIds={work.placed}
+          hiddenTileId={isMyTurn ? null : liveDragging}
           onTileDragStart={onTileDragStart}
+          onTileDragEnd={onTileDragEnd}
           onDrop={onDrop}
           allowDrop={allowDrop}
         />
@@ -411,7 +551,9 @@ export function RummyGame({
             rack={isMyTurn ? work.rack : serverRack}
             editable={isMyTurn}
             penalty={myRackPenalty}
+            drawnId={lastDrawnId}
             onTileDragStart={onTileDragStart}
+            onTileDragEnd={onTileDragEnd}
             onDrop={onDrop}
             allowDrop={allowDrop}
           />
@@ -460,7 +602,7 @@ export function RummyGame({
               <span className="text-[13px] text-[var(--sheet-muted)]">
                 {players.find((p) => p.memberId === turnMemberId)?.nickname ??
                   "?"}
-                의 차례를 기다리는 중...
+                {liveTable ? "이(가) 타일을 배치하는 중..." : "의 차례를 기다리는 중..."}
               </span>
             )}
             <button
@@ -612,27 +754,43 @@ function Tile({
   tile,
   draggable,
   highlight,
+  drawn,
+  faceDown,
   onDragStart,
+  onDragEnd,
 }: {
   tile: RummyTile;
   draggable: boolean;
   highlight?: boolean;
+  drawn?: boolean; // 방금 뽑은 타일(초록 강조)
+  faceDown?: boolean; // 상대가 드는 중인 타일 — 숫자 숨김
   onDragStart?: (e: React.DragEvent) => void;
+  onDragEnd?: () => void;
 }) {
   return (
     <div
       draggable={draggable}
       onDragStart={onDragStart}
+      onDragEnd={onDragEnd}
       className={
-        "w-8 h-11 rounded border bg-white grid place-items-center text-[16px] font-semibold select-none shadow-sm " +
+        "w-8 h-11 rounded border grid place-items-center text-[16px] font-semibold select-none shadow-sm " +
+        (faceDown ? "bg-[#dadce0] " : "bg-white ") +
         (highlight
           ? "border-[var(--sheet-active)] ring-1 ring-[var(--sheet-active)] "
-          : "border-[var(--sheet-cell-border)] ") +
+          : drawn
+            ? "border-[var(--sheet-green)] ring-1 ring-[var(--sheet-green)] "
+            : "border-[var(--sheet-cell-border)] ") +
         (draggable ? "cursor-grab active:cursor-grabbing" : "cursor-default")
       }
-      style={{ color: tile.joker ? JOKER_COLOR : TILE_COLORS[tile.color] }}
+      style={{
+        color: faceDown
+          ? undefined
+          : tile.joker
+            ? JOKER_COLOR
+            : TILE_COLORS[tile.color],
+      }}
     >
-      {tile.joker ? "★" : tile.value}
+      {faceDown ? "" : tile.joker ? "★" : tile.value}
     </div>
   );
 }
@@ -641,17 +799,21 @@ function TableArea({
   table,
   editable,
   placedIds,
+  hiddenTileId,
   onTileDragStart,
+  onTileDragEnd,
   onDrop,
   allowDrop,
 }: {
   table: RummyTile[][];
   editable: boolean;
   placedIds: Set<string>;
+  hiddenTileId?: string | null; // 턴 플레이어가 드는 중인 타일 — 뒷면 처리
   onTileDragStart: (
     tileId: string,
     from: "rack" | "table",
   ) => (e: React.DragEvent) => void;
+  onTileDragEnd: () => void;
   onDrop: (target: DropTarget) => (e: React.DragEvent) => void;
   allowDrop: (e: React.DragEvent) => void;
 }) {
@@ -680,8 +842,10 @@ function TableArea({
                 <Tile
                   tile={t}
                   draggable={editable}
-                  highlight={placedIds.has(t.id)}
+                  highlight={editable && placedIds.has(t.id)}
+                  faceDown={t.id === hiddenTileId}
                   onDragStart={onTileDragStart(t.id, "table")}
+                  onDragEnd={onTileDragEnd}
                 />
               </div>
             ))}
@@ -710,17 +874,21 @@ function RackArea({
   rack,
   editable,
   penalty,
+  drawnId,
   onTileDragStart,
+  onTileDragEnd,
   onDrop,
   allowDrop,
 }: {
   rack: RummyTile[];
   editable: boolean;
   penalty: number;
+  drawnId?: string | null; // 방금 뽑은 타일 강조
   onTileDragStart: (
     tileId: string,
     from: "rack" | "table",
   ) => (e: React.DragEvent) => void;
+  onTileDragEnd: () => void;
   onDrop: (target: DropTarget) => (e: React.DragEvent) => void;
   allowDrop: (e: React.DragEvent) => void;
 }) {
@@ -749,7 +917,9 @@ function RackArea({
             key={t.id}
             tile={t}
             draggable={editable}
+            drawn={t.id === drawnId}
             onDragStart={onTileDragStart(t.id, "rack")}
+            onDragEnd={onTileDragEnd}
           />
         ))}
       </div>
