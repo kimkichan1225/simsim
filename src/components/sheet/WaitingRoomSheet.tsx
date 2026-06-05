@@ -7,6 +7,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { DEFAULT_TAB_NAME, getSavedTabName, setTabName } from "@/lib/tab-alert";
 
 type WaitingMember = {
   memberId: string;
@@ -37,6 +38,14 @@ const MIN_ROWS = 30;
 export function WaitingRoomSheet() {
   const router = useRouter();
   const [members, setMembers] = useState<WaitingMember[]>([]);
+
+  // 브라우저 탭에 표시할 이름(개인 설정) — 입력 즉시 적용, 빈 값이면 기본값
+  // (SSR에서는 빈 값이므로 input에 suppressHydrationWarning을 둔다)
+  const [tabName, setTabNameState] = useState(() => getSavedTabName());
+  const onTabNameChange = useCallback((value: string) => {
+    setTabNameState(value);
+    setTabName(value);
+  }, []);
 
   // 방 폭파 시: 세션 정리 후 입장 화면으로 돌아간다.
   const handleDestroyed = useCallback(async () => {
@@ -83,6 +92,20 @@ export function WaitingRoomSheet() {
 
   return (
     <div className="min-w-max">
+      {/* 브라우저 탭 이름 설정 — 이 브라우저에서만 적용되는 개인 설정 */}
+      <div className="flex items-center gap-2 px-2 py-1.5 border-b border-[var(--sheet-cell-border)] bg-[var(--sheet-toolbar-bg)] text-[12px] text-[var(--sheet-muted)]">
+        <span className="shrink-0">탭 제목</span>
+        <input
+          type="text"
+          value={tabName}
+          onChange={(e) => onTabNameChange(e.target.value)}
+          placeholder={DEFAULT_TAB_NAME}
+          maxLength={60}
+          suppressHydrationWarning
+          className="w-[220px] border border-[var(--sheet-cell-border)] rounded px-2 py-0.5 text-[12px] text-[var(--sheet-fg)] bg-white focus:outline-none focus:border-[var(--sheet-active)]"
+        />
+        <span className="shrink-0">비우면 기본값 · 이 브라우저에만 적용돼요</span>
+      </div>
       <div className="flex sticky top-0 z-10 bg-[var(--sheet-header-bg)] border-b border-[var(--sheet-cell-border)]">
         <div className="w-10 h-6 border-r border-[var(--sheet-cell-border)]" />
         {colHeaders.map((h) => (

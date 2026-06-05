@@ -11,6 +11,7 @@ import { RummyGame } from "@/components/game/RummyGame";
 import { SuikaGame } from "@/components/game/SuikaGame";
 import { TetrisGame } from "@/components/game/TetrisGame";
 import { LeaderboardTab } from "@/components/leaderboard/LeaderboardTab";
+import { applySavedTabName } from "@/lib/tab-alert";
 import { SheetShell, type SheetTab } from "./SheetShell";
 import { WaitingRoomSheet } from "./WaitingRoomSheet";
 
@@ -42,6 +43,11 @@ export function WorkspaceSheet({
   const router = useRouter();
   const [activeTabId, setActiveTabId] = useState(TABS[0].id);
   const [refreshKey] = useState(0);
+
+  // 저장해둔 사용자 지정 탭 이름(브라우저별)을 적용
+  useEffect(() => {
+    applySavedTabName();
+  }, []);
 
   // 게임 로비에서 30초 무입력 → 대기방 탭으로 자동 이동.
   // 탭 전환으로 게임 컴포넌트가 언마운트되면 SSE 구독이 끊겨 로비에서도 빠진다.

@@ -7,6 +7,47 @@ let pending = 0;
 let baseTitle: string | null = null;
 let bound = false;
 
+// ---------- 탭 이름(문서 제목) 사용자 지정 ----------
+// 각자 브라우저(localStorage)에만 저장되는 개인 설정.
+
+const TITLE_SUFFIX = " - Google Sheets";
+export const DEFAULT_TAB_NAME = "제목 없는 스프레드시트";
+const TITLE_STORAGE_KEY = "sheet-tab-title";
+
+// 저장된 사용자 지정 탭 이름(없으면 빈 문자열)
+export function getSavedTabName(): string {
+  if (typeof window === "undefined") return "";
+  try {
+    return window.localStorage.getItem(TITLE_STORAGE_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+// 탭 이름을 지정한다. 빈 값이면 기본값으로 되돌린다.
+export function setTabName(name: string): void {
+  if (typeof document === "undefined") return;
+  const trimmed = name.trim();
+  try {
+    if (trimmed) window.localStorage.setItem(TITLE_STORAGE_KEY, trimmed);
+    else window.localStorage.removeItem(TITLE_STORAGE_KEY);
+  } catch {
+    /* 저장 불가(시크릿 모드 등)여도 이번 세션에는 적용 */
+  }
+  baseTitle = `${trimmed || DEFAULT_TAB_NAME}${TITLE_SUFFIX}`;
+  refreshTitle();
+}
+
+// 마운트 시 저장된 탭 이름을 적용한다.
+export function applySavedTabName(): void {
+  if (typeof document === "undefined") return;
+  const saved = getSavedTabName();
+  if (saved) {
+    baseTitle = `${saved}${TITLE_SUFFIX}`;
+    refreshTitle();
+  }
+}
+
 // 파비콘 뱃지 상태
 let originalIconHref: string | null = null;
 let badgedIconHref: Promise<string | null> | null = null;
