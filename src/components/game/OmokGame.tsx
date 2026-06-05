@@ -297,6 +297,7 @@ export function OmokGame({
           onStart={startMatch}
           onReady={toggleReady}
           startError={startError}
+          requiresOpponent
         />
       )}
       <span className="sr-only">{myNickname}</span>

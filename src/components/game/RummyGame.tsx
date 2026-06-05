@@ -511,6 +511,7 @@ export function RummyGame({
           onStart={startMatch}
           onReady={toggleReady}
           startError={startError}
+          requiresOpponent
         />
       )}
       <span className="sr-only">{myNickname}</span>

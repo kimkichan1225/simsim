@@ -23,6 +23,7 @@ type Props = {
   onReady: (ready: boolean) => void;
   startError?: string | null;
   canStart?: boolean; // false면 시작 버튼 비활성(예: 다른 대결 진행 중)
+  requiresOpponent?: boolean; // 혼자서는 못 하는 게임(오목/루미큐브) — 솔로 시작 숨김
   busy?: boolean;
 };
 
@@ -37,6 +38,7 @@ export function LobbyCard({
   onReady,
   startError,
   canStart = true,
+  requiresOpponent = false,
   busy,
 }: Props) {
   // 자리비움(대기방) 멤버는 목록/시작 조건에서 분리한다
@@ -47,10 +49,14 @@ export function LobbyCard({
   const others = active.filter((m) => !m.isOwner);
   // 방장 제외 전원 준비(상대가 없으면 솔로 시작 허용)
   const allReady = others.every((m) => m.ready);
-  // 방장이 아니어도 대기실에 혼자면 솔로 시작 가능
+  // 방장이 아니어도 대기실에 혼자면 솔로 시작 가능 (상대 필수 게임은 제외)
   const alone = active.length === 1 && !!me;
-  const solo = (isOwner && others.length === 0) || (!isOwner && alone);
-  const showStart = isOwner || alone;
+  const solo =
+    !requiresOpponent &&
+    ((isOwner && others.length === 0) || (!isOwner && alone));
+  const showStart = isOwner || (alone && !requiresOpponent);
+  // 상대 필수 게임은 혼자(상대 없음)면 시작 불가
+  const needMore = requiresOpponent && active.length < 2;
 
   return (
     <div className="flex flex-col items-center gap-4 p-6 border border-[var(--sheet-cell-border)] bg-white w-full max-w-md mx-auto">
@@ -125,12 +131,17 @@ export function LobbyCard({
           <button
             type="button"
             onClick={onStart}
-            disabled={(!allReady && !solo) || !canStart || busy}
+            disabled={(!allReady && !solo) || !canStart || busy || needMore}
             className="w-full px-5 py-2.5 rounded bg-[var(--sheet-active)] text-white text-[15px] font-medium hover:brightness-95 disabled:opacity-50"
           >
             {solo ? "혼자 시작" : "시작"}
           </button>
-          {canStart && !allReady && !solo && (
+          {needMore && (
+            <div className="text-[12px] text-[var(--sheet-muted)]">
+              이 게임은 2명 이상 모여야 시작할 수 있어요
+            </div>
+          )}
+          {canStart && !needMore && !allReady && !solo && (
             <div className="text-[12px] text-[var(--sheet-muted)]">
               모든 참가자가 준비하면 시작할 수 있어요
             </div>
