@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { destroyGroup } from "@/lib/multiplayer";
 import { destroyGroupApple } from "@/lib/apple";
+import { destroyGroupOmok } from "@/lib/omok";
 import { destroyGroupTetris } from "@/lib/tetris";
 import { destroyGroupChat } from "@/lib/chat";
 import { destroyGroupWaiting } from "@/lib/waiting";
@@ -28,6 +29,7 @@ export async function POST() {
     await prisma.group.deleteMany({ where: { id: me.groupId } });
     destroyGroup(me.groupId);
     destroyGroupApple(me.groupId);
+    destroyGroupOmok(me.groupId);
     destroyGroupTetris(me.groupId);
     destroyGroupChat(me.groupId);
     destroyGroupWaiting(me.groupId);

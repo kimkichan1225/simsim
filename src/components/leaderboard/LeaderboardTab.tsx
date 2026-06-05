@@ -18,11 +18,12 @@ type Data = {
   tetris: GameData;
   apple: GameData;
   suika: GameData;
+  omok: GameData;
 };
 
 type Col = { label: string; width: number; align: "left" | "right" };
 
-// 대결 표: 승/패 포함, 혼자 표: 승/패 제외
+// 대결 표: 승/패 포함, 혼자 표: 승/패 제외, 승부 표(오목): 점수 없이 승/패만
 const VERSUS_COLS: Col[] = [
   { label: "순위", width: 70, align: "left" },
   { label: "닉네임", width: 150, align: "left" },
@@ -35,6 +36,13 @@ const SOLO_COLS: Col[] = [
   { label: "순위", width: 70, align: "left" },
   { label: "닉네임", width: 150, align: "left" },
   { label: "최고 점수", width: 100, align: "right" },
+  { label: "판수", width: 70, align: "right" },
+];
+const DUEL_COLS: Col[] = [
+  { label: "순위", width: 70, align: "left" },
+  { label: "닉네임", width: 150, align: "left" },
+  { label: "승", width: 60, align: "right" },
+  { label: "패", width: 60, align: "right" },
   { label: "판수", width: 70, align: "right" },
 ];
 const COL_LETTERS = ["A", "B", "C", "D", "E", "F"];
@@ -115,6 +123,8 @@ export function LeaderboardTab({ refreshKey }: { refreshKey: number }) {
         rows={data.suika.solo}
         mode="solo"
       />
+      {/* 오목은 1:1 전용 — 점수 없이 승/패만 표시 */}
+      <ScoreTable title="⚫ 오목 — 대결" rows={data.omok.versus} mode="duel" />
     </div>
   );
 }
@@ -126,9 +136,10 @@ function ScoreTable({
 }: {
   title: string;
   rows: Row[];
-  mode: "solo" | "versus";
+  mode: "solo" | "versus" | "duel";
 }) {
-  const cols = mode === "versus" ? VERSUS_COLS : SOLO_COLS;
+  const cols =
+    mode === "versus" ? VERSUS_COLS : mode === "duel" ? DUEL_COLS : SOLO_COLS;
   // 한 번이라도 참가한 사람만 순위에 올린다.
   const played = rows.filter((r) => r.matches > 0);
 
@@ -179,15 +190,27 @@ function ScoreTable({
               {idx + 1}
             </Cell>
             <Cell width={cols[1].width}>{row.nickname}</Cell>
-            <Cell width={cols[2].width} align="right">
-              {row.best}
-            </Cell>
+            {mode !== "duel" && (
+              <Cell width={cols[2].width} align="right">
+                {row.best}
+              </Cell>
+            )}
             {mode === "versus" && (
               <>
                 <Cell width={cols[3].width} align="right">
                   {row.wins}
                 </Cell>
                 <Cell width={cols[4].width} align="right">
+                  {row.losses}
+                </Cell>
+              </>
+            )}
+            {mode === "duel" && (
+              <>
+                <Cell width={cols[2].width} align="right">
+                  {row.wins}
+                </Cell>
+                <Cell width={cols[3].width} align="right">
                   {row.losses}
                 </Cell>
               </>

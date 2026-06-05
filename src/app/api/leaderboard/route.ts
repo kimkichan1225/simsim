@@ -5,7 +5,7 @@ import { getCurrentMember } from "@/server/auth";
 const MAX_MEMBERS = 100;
 const MAX_RESULTS = 5000;
 
-type GameKey = "word" | "tetris" | "apple" | "suika";
+type GameKey = "word" | "tetris" | "apple" | "suika" | "omok";
 type ModeKey = "solo" | "versus"; // 혼자(참가자 1명) | 대결(2명 이상)
 
 type Row = {
@@ -64,6 +64,7 @@ export async function GET() {
     tetris: { solo: new Map(), versus: new Map() },
     apple: { solo: new Map(), versus: new Map() },
     suika: { solo: new Map(), versus: new Map() },
+    omok: { solo: new Map(), versus: new Map() },
   };
 
   for (const r of results) {
@@ -74,7 +75,9 @@ export async function GET() {
           ? "apple"
           : r.game === "suika"
             ? "suika"
-            : "word";
+            : r.game === "omok"
+              ? "omok"
+              : "word";
     const modeKey: ModeKey = r.totalParticipants >= 2 ? "versus" : "solo";
     const map = byGameMode[gameKey][modeKey];
     let acc = map.get(r.memberId);
@@ -133,6 +136,11 @@ export async function GET() {
     suika: {
       solo: buildRows("suika", "solo"),
       versus: buildRows("suika", "versus"),
+    },
+    // 오목은 1:1 대결 전용 — versus만 의미 있다
+    omok: {
+      solo: buildRows("omok", "solo"),
+      versus: buildRows("omok", "versus"),
     },
   });
 }

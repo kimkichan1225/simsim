@@ -146,8 +146,14 @@ function describe(row: Row): string {
           ? "사과게임"
           : p?.game === "suika"
             ? "수박게임"
-            : "단어줍기";
+            : p?.game === "omok"
+              ? "오목"
+              : "단어줍기";
     if (!p) return "매치 종료";
+    // 오목은 점수 개념이 없어 승자만 표기
+    if (p.game === "omok") {
+      return `오목 대국 종료: ${p.topNickname ?? "-"} 승리`;
+    }
     return `${gameName} 매치 종료: ${p.topNickname ?? "-"} 1위 (${
       p.topScore ?? 0
     }점, ${p.participants ?? 0}명 참가)`;
