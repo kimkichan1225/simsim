@@ -327,6 +327,11 @@ function deal(match: RummyMatch): void {
     }
   }
   match.status = "running";
+  // 턴 순서를 랜덤으로 섞는다 — 방장이 항상 선이 되지 않도록 (Fisher–Yates)
+  for (let i = match.order.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [match.order[i], match.order[j]] = [match.order[j], match.order[i]];
+  }
   // 첫 차례는 기권하지 않은 첫 참가자
   match.turnIdx = match.order.findIndex(
     (id) => !match.players.get(id)!.resigned,

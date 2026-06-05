@@ -1,7 +1,7 @@
 "use client";
 
 // 오목(15×15 표준 룰, 무금수, 턴 무제한) — 1:1 대결 + 나머지는 관전.
-// 흑 = 시작한 방장, 백 = 첫 합류자. 위장: 시트 셀 그리드에 ●○ 데이터 찍는 모양.
+// 시작자 + 첫 합류자 중 흑(선공)/백은 랜덤 배정. 위장: 시트 셀 그리드에 ●○ 데이터 찍는 모양.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -44,7 +44,6 @@ type ServerEvent =
   | Snapshot
   | { type: "no_match" }
   | { type: "match_started"; matchId: string; startedAt: number }
-  | { type: "player_joined"; player: OmokPlayer; turnMemberId: string }
   | { type: "stone_placed"; idx: number; color: StoneColor; nextTurnMemberId: string }
   | { type: "match_ended"; results: MatchResult[] }
   | { type: "match_cancelled" }
@@ -129,18 +128,13 @@ export function OmokGame({
           setLastMove(null);
           setResults(null);
           setNotice(null);
-          // 대기방(자리비움)이면 합류하지 않는다. 흑(시작자) 정보는 스냅샷으로 온다.
+          // 대기방(자리비움)이면 합류하지 않는다. 색 배정은 스냅샷으로 온다.
           if (amAwayRef.current) break;
           setPhase("playing");
-          // 가장 먼저 응답한 사람이 백 — 이미 찼으면 관전(실패 무시)
+          // 가장 먼저 응답한 사람이 상대(흑백 랜덤) — 이미 찼으면 관전(실패 무시)
           void fetch("/api/omok/join", { method: "POST" }).catch(
             () => undefined,
           );
-          break;
-        }
-        case "player_joined": {
-          setWhite(ev.player);
-          setTurnMemberId(ev.turnMemberId);
           break;
         }
         case "stone_placed": {
@@ -294,7 +288,7 @@ export function OmokGame({
           description={
             phase === "result"
               ? "다음 판을 준비하세요."
-              : "15×15 표준 오목 1:1 대결이에요.\n방장이 시작하면 가장 먼저 응한 사람이 백이 되고, 나머지는 관전해요."
+              : "15×15 표준 오목 1:1 대결이에요.\n방장이 시작하면 가장 먼저 응한 사람이 상대가 되고(흑백은 랜덤), 나머지는 관전해요."
           }
           notice={notice}
           members={lobbyMembers}

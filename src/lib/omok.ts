@@ -1,7 +1,7 @@
 // 오목(15×15, 표준 룰·무금수·턴 무제한) — 인메모리 상태/이벤트 허브
 // 사과게임(apple.ts)과 같은 패턴. 1:1 턴제라 서버가 전부 권위를 가진다:
 //   - 착수 검증(차례/빈칸), 5목 판정, 기권 처리
-//   - 흑 = 시작한 사람(방장), 백 = 첫 합류자. 나머지는 관전.
+//   - 시작자 + 첫 합류자 중 동전 던지기로 흑(선공)/백 배정. 나머지는 관전.
 
 import { randomBytes } from "node:crypto";
 import { GroupLobby, type LobbyMemberView } from "./lobby";
@@ -45,7 +45,6 @@ export type OmokEvent =
   | OmokSnapshot
   | { type: "no_match" }
   | { type: "match_started"; matchId: string; startedAt: number }
-  | { type: "player_joined"; player: OmokPlayer; turnMemberId: string }
   | {
       type: "stone_placed";
       idx: number;
@@ -191,7 +190,8 @@ export function startMatch(input: {
   return { matchId: match.matchId, startedAt: match.startedAt };
 }
 
-// 진행 중인 판에 백으로 합류한다. 이미 두 명이 찼으면 관전(full).
+// 진행 중인 판에 상대로 합류한다. 이미 두 명이 찼으면 관전(full).
+// 합류 시점에 동전 던지기로 흑(선공)/백을 랜덤 배정한다.
 export function joinMatch(input: {
   groupId: string;
   memberId: string;
@@ -206,22 +206,29 @@ export function joinMatch(input: {
   if (match.white?.memberId === input.memberId) return { ok: true, color: 2 };
   if (match.white) return { ok: false, reason: "full" };
 
-  match.white = {
+  const joiner: OmokPlayer = {
     memberId: input.memberId,
     nickname: input.nickname,
     color: 2,
   };
+  if (Math.random() < 0.5) {
+    // 시작자가 백, 합류자가 흑
+    match.white = { ...match.black, color: 2 };
+    match.black = { ...joiner, color: 1 };
+  } else {
+    match.white = joiner;
+  }
   match.turnMemberId = match.black.memberId; // 흑 선
   if (match.waitTimer) {
     clearTimeout(match.waitTimer);
     match.waitTimer = null;
   }
-  broadcastToGroup(match.groupId, {
-    type: "player_joined",
-    player: match.white,
-    turnMemberId: match.turnMemberId,
-  });
-  return { ok: true, color: 2 };
+  // 색 배정이 바뀔 수 있으므로 전체 스냅샷으로 알린다
+  broadcastToGroup(match.groupId, snapshotOf(match));
+  return {
+    ok: true,
+    color: match.black.memberId === input.memberId ? 1 : 2,
+  };
 }
 
 const DIRS: ReadonlyArray<readonly [number, number]> = [
