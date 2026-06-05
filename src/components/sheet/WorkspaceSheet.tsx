@@ -7,6 +7,7 @@ import { ChatButton } from "@/components/chat/ChatButton";
 import { AppleGame } from "@/components/game/AppleGame";
 import { MultiplayerGame } from "@/components/game/MultiplayerGame";
 import { OmokGame } from "@/components/game/OmokGame";
+import { RummyGame } from "@/components/game/RummyGame";
 import { SuikaGame } from "@/components/game/SuikaGame";
 import { TetrisGame } from "@/components/game/TetrisGame";
 import { LeaderboardTab } from "@/components/leaderboard/LeaderboardTab";
@@ -20,6 +21,7 @@ const TABS: SheetTab[] = [
   { id: "apple", label: "사과게임" },
   { id: "suika", label: "수박게임" },
   { id: "omok", label: "오목" },
+  { id: "rummy", label: "루미큐브" },
   { id: "leaderboard", label: "점수판" },
   { id: "activity", label: "활동" },
 ];
@@ -127,6 +129,16 @@ export function WorkspaceSheet({
       {activeTabId === "omok" && (
         <div className="px-6">
           <OmokGame
+            myMemberId={memberId}
+            myNickname={nickname}
+            isOwner={isOwner}
+            onAway={goWaiting}
+          />
+        </div>
+      )}
+      {activeTabId === "rummy" && (
+        <div className="px-6">
+          <RummyGame
             myMemberId={memberId}
             myNickname={nickname}
             isOwner={isOwner}

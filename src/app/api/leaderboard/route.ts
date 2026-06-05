@@ -5,7 +5,7 @@ import { getCurrentMember } from "@/server/auth";
 const MAX_MEMBERS = 100;
 const MAX_RESULTS = 5000;
 
-type GameKey = "word" | "tetris" | "apple" | "suika" | "omok";
+type GameKey = "word" | "tetris" | "apple" | "suika" | "omok" | "rummy";
 type ModeKey = "solo" | "versus"; // 혼자(참가자 1명) | 대결(2명 이상)
 
 type Row = {
@@ -65,19 +65,20 @@ export async function GET() {
     apple: { solo: new Map(), versus: new Map() },
     suika: { solo: new Map(), versus: new Map() },
     omok: { solo: new Map(), versus: new Map() },
+    rummy: { solo: new Map(), versus: new Map() },
   };
 
+  const KNOWN_GAMES: ReadonlySet<string> = new Set([
+    "tetris",
+    "apple",
+    "suika",
+    "omok",
+    "rummy",
+  ]);
   for (const r of results) {
-    const gameKey: GameKey =
-      r.game === "tetris"
-        ? "tetris"
-        : r.game === "apple"
-          ? "apple"
-          : r.game === "suika"
-            ? "suika"
-            : r.game === "omok"
-              ? "omok"
-              : "word";
+    const gameKey: GameKey = KNOWN_GAMES.has(r.game)
+      ? (r.game as GameKey)
+      : "word";
     const modeKey: ModeKey = r.totalParticipants >= 2 ? "versus" : "solo";
     const map = byGameMode[gameKey][modeKey];
     let acc = map.get(r.memberId);
@@ -141,6 +142,11 @@ export async function GET() {
     omok: {
       solo: buildRows("omok", "solo"),
       versus: buildRows("omok", "versus"),
+    },
+    // 루미큐브는 2~4인 대결 전용
+    rummy: {
+      solo: buildRows("rummy", "solo"),
+      versus: buildRows("rummy", "versus"),
     },
   });
 }

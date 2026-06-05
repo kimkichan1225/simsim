@@ -148,7 +148,9 @@ function describe(row: Row): string {
             ? "수박게임"
             : p?.game === "omok"
               ? "오목"
-              : "단어줍기";
+              : p?.game === "rummy"
+                ? "루미큐브"
+                : "단어줍기";
     if (!p) return "매치 종료";
     // 오목은 점수 개념이 없어 승자만 표기
     if (p.game === "omok") {

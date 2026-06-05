@@ -19,6 +19,7 @@ type Data = {
   apple: GameData;
   suika: GameData;
   omok: GameData;
+  rummy: GameData;
 };
 
 type Col = { label: string; width: number; align: "left" | "right" };
@@ -125,6 +126,12 @@ export function LeaderboardTab({ refreshKey }: { refreshKey: number }) {
       />
       {/* 오목은 1:1 전용 — 점수 없이 승/패만 표시 */}
       <ScoreTable title="⚫ 오목 — 대결" rows={data.omok.versus} mode="duel" />
+      {/* 루미큐브는 2~4인 대결 전용 — 점수는 승리 시 상대 잔여 합 */}
+      <ScoreTable
+        title="🟧 루미큐브 — 대결"
+        rows={data.rummy.versus}
+        mode="versus"
+      />
     </div>
   );
 }

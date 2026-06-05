@@ -22,6 +22,7 @@ const LOCATION_LABEL: Record<string, string> = {
   apple: "사과게임",
   suika: "수박게임",
   omok: "오목",
+  rummy: "루미큐브",
   leaderboard: "점수판",
   activity: "활동",
 };
