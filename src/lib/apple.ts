@@ -420,10 +420,11 @@ export function registerSubscriber(
 
   const unsubscribe = () => {
     const b = groupSubscribers.get(groupId);
-    if (b && b.get(memberId) === fn) {
-      b.delete(memberId);
-      if (b.size === 0) groupSubscribers.delete(groupId);
-    }
+    // 재연결로 더 최신 구독이 들어왔다면(이 fn이 현재 것이 아니면) 아무것도 정리하지 않는다.
+    // 그렇지 않으면 접속 중인데도 로비에서 빠져 참가자 목록에서 사라진다.
+    if (!b || b.get(memberId) !== fn) return;
+    b.delete(memberId);
+    if (b.size === 0) groupSubscribers.delete(groupId);
     lobby.leave(groupId, memberId);
     broadcastLobby(groupId);
   };

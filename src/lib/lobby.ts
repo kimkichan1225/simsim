@@ -7,7 +7,10 @@
 // 클라이언트는 away 멤버에게 독립된 대기방 화면을 보여주고,
 // 준비 API 호출(어떤 값이든)로 즉시 로비에 복귀시킨다.
 
-export const IDLE_TIMEOUT_MS = 30_000;
+// 비방장 멤버가 준비 입력 없이 이만큼 머물면 자리비움 처리한다.
+// 턴 무제한 보드게임(오목·루미큐브)에서 한 수 고민하거나 판이 끝난 뒤
+// 결과를 보며 잠시 머무는 시간을 감안해 넉넉히 둔다(짧으면 대기방으로 끌려감).
+export const IDLE_TIMEOUT_MS = 90_000;
 
 export type LobbyMemberView = {
   memberId: string;
