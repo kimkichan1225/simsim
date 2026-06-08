@@ -562,17 +562,9 @@ function SheetTabs({
 
 function SheetsIcon() {
   return (
-    <svg viewBox="0 0 64 64" width={28} height={28} aria-hidden>
-      <rect x="8" y="4" width="44" height="56" rx="4" fill="#0f9d58" />
-      <rect x="14" y="14" width="32" height="40" rx="2" fill="#ffffff" />
-      <g stroke="#0f9d58" strokeWidth="2">
-        <line x1="14" y1="24" x2="46" y2="24" />
-        <line x1="14" y1="34" x2="46" y2="34" />
-        <line x1="14" y1="44" x2="46" y2="44" />
-        <line x1="24" y1="14" x2="24" y2="54" />
-        <line x1="36" y1="14" x2="36" y2="54" />
-      </g>
-    </svg>
+    // 위장용 정적 로고 — 최적화 불필요해 일반 img 사용
+    // eslint-disable-next-line @next/next/no-img-element
+    <img src="/sheets-logo.png" width={28} height={28} alt="" aria-hidden />
   );
 }
 

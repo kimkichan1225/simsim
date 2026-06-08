@@ -17,9 +17,7 @@ const notoSansKr = Noto_Sans_KR({
 export const metadata: Metadata = {
   title: "제목 없는 스프레드시트 - Google Sheets",
   description: "Google Sheets",
-  icons: {
-    icon: "/icon.svg",
-  },
+  // 파비콘은 app/icon.png 파일을 Next가 자동으로 메타데이터로 연결한다.
 };
 
 export default function RootLayout({
