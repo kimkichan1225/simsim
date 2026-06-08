@@ -7,6 +7,7 @@ import { ChatButton } from "@/components/chat/ChatButton";
 import { AppleGame } from "@/components/game/AppleGame";
 import { OmokGame } from "@/components/game/OmokGame";
 import { RummyGame } from "@/components/game/RummyGame";
+import { SutdaGame } from "@/components/game/SutdaGame";
 import { TetrisGame } from "@/components/game/TetrisGame";
 import { LeaderboardTab } from "@/components/leaderboard/LeaderboardTab";
 import { applySavedTabName } from "@/lib/tab-alert";
@@ -19,6 +20,7 @@ const TABS: SheetTab[] = [
   { id: "apple", label: "사과게임" },
   { id: "omok", label: "오목" },
   { id: "rummy", label: "루미큐브" },
+  { id: "sutda", label: "섯다" },
   { id: "leaderboard", label: "점수판" },
   { id: "activity", label: "활동" },
 ];
@@ -126,6 +128,16 @@ export function WorkspaceSheet({
       {activeTabId === "rummy" && (
         <div className="px-6">
           <RummyGame
+            myMemberId={memberId}
+            myNickname={nickname}
+            isOwner={isOwner}
+            onAway={goWaiting}
+          />
+        </div>
+      )}
+      {activeTabId === "sutda" && (
+        <div className="px-6">
+          <SutdaGame
             myMemberId={memberId}
             myNickname={nickname}
             isOwner={isOwner}

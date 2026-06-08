@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { destroyGroupApple } from "@/lib/apple";
 import { destroyGroupOmok } from "@/lib/omok";
 import { destroyGroupRummy } from "@/lib/rummy";
+import { destroyGroupSutda } from "@/lib/sutda";
 import { destroyGroupTetris } from "@/lib/tetris";
 import { destroyGroupChat } from "@/lib/chat";
 import { destroyGroupWaiting } from "@/lib/waiting";
@@ -30,6 +31,7 @@ export async function POST() {
     destroyGroupApple(me.groupId);
     destroyGroupOmok(me.groupId);
     destroyGroupRummy(me.groupId);
+    destroyGroupSutda(me.groupId);
     destroyGroupTetris(me.groupId);
     destroyGroupChat(me.groupId);
     destroyGroupWaiting(me.groupId);
