@@ -260,7 +260,7 @@ export function pushBoard(input: {
   const match = matches.get(input.groupId);
   if (!match || match.status !== "running") return { ok: false };
   const p = match.players.get(input.memberId);
-  if (!p) return { ok: false };
+  if (!p || !p.alive) return { ok: false }; // 탈락자는 보드/점수를 더 갱신할 수 없다
   p.board = input.board;
   p.score = input.score;
   broadcastToGroup(match.groupId, {

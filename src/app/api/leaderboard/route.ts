@@ -31,6 +31,15 @@ function emptyAcc(): Acc {
   return { best: 0, wins: 0, losses: 0, matches: 0, lastPlayedAt: null };
 }
 
+// word 외 게임 키 (그 외 game 값은 모두 word로 집계)
+const KNOWN_GAMES: ReadonlySet<string> = new Set([
+  "tetris",
+  "apple",
+  "suika",
+  "omok",
+  "rummy",
+]);
+
 export async function GET() {
   const me = await getCurrentMember();
   if (!me) {
@@ -68,13 +77,6 @@ export async function GET() {
     rummy: { solo: new Map(), versus: new Map() },
   };
 
-  const KNOWN_GAMES: ReadonlySet<string> = new Set([
-    "tetris",
-    "apple",
-    "suika",
-    "omok",
-    "rummy",
-  ]);
   for (const r of results) {
     const gameKey: GameKey = KNOWN_GAMES.has(r.game)
       ? (r.game as GameKey)

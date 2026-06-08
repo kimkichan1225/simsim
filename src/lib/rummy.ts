@@ -168,6 +168,20 @@ function buildPool(): RummyTile[] {
 
 // ---------- 스냅샷 ----------
 
+// 드는 중인 타일은 상대에게 색·숫자가 노출되지 않도록 placeholder로 가려 내보낸다.
+// (클라이언트는 liveDraggingId로 뒷면 처리하므로 값은 쓰이지 않는다)
+function redactDragging(
+  table: RummyTile[][],
+  draggingId: string | null,
+): RummyTile[][] {
+  if (!draggingId) return table;
+  return table.map((set) =>
+    set.map((t) =>
+      t.id === draggingId ? { id: t.id, color: -1, value: 0, joker: false } : t,
+    ),
+  );
+}
+
 function playerView(p: RummyPlayer): RummyPlayerView {
   return {
     memberId: p.memberId,
@@ -195,7 +209,9 @@ export function snapshotFor(
     turnMemberId:
       match.status === "running" ? (match.order[match.turnIdx] ?? null) : null,
     table: match.table,
-    liveTable: match.liveTable,
+    liveTable: match.liveTable
+      ? redactDragging(match.liveTable, match.liveDragging)
+      : null,
     liveDraggingId: match.liveDragging,
     myRack: me ? [...me.rack.values()] : [],
     myLastDrawnId: me?.lastDrawn ?? null,
@@ -516,7 +532,7 @@ export function updateLive(input: {
   broadcastToGroup(match.groupId, {
     type: "live",
     memberId: input.memberId,
-    table: liveTable,
+    table: redactDragging(liveTable, match.liveDragging),
     dragging: match.liveDragging,
   });
   return { ok: true };
