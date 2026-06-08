@@ -4,6 +4,7 @@
 //   - 시작자 + 첫 합류자 중 동전 던지기로 흑(선공)/백 배정. 나머지는 관전.
 
 import { randomBytes } from "node:crypto";
+import { GameChannel, type SseSubscriber } from "./game-channel";
 import { GroupLobby, type LobbyMemberView } from "./lobby";
 
 export const OMOK_SIZE = 15;
@@ -56,8 +57,6 @@ export type OmokEvent =
   | { type: "lobby"; members: LobbyMemberView[] }
   | { type: "group_destroyed" };
 
-type Subscriber = (event: OmokEvent) => void;
-
 type OmokMatch = {
   matchId: string;
   groupId: string;
@@ -75,7 +74,7 @@ type OmokMatch = {
 };
 
 const matches = new Map<string, OmokMatch>();
-const groupSubscribers = new Map<string, Map<string, Subscriber>>();
+const channel = new GameChannel();
 // 자리비움 전환이 일어나면 로비 상태를 모두에게 다시 알린다.
 const lobby = new GroupLobby((groupId) => broadcastLobby(groupId));
 
@@ -84,15 +83,7 @@ function newId(bytes: number): string {
 }
 
 function broadcastToGroup(groupId: string, event: OmokEvent): void {
-  const subs = groupSubscribers.get(groupId);
-  if (!subs) return;
-  for (const fn of subs.values()) {
-    try {
-      fn(event);
-    } catch (e) {
-      console.error("omok subscriber error", e);
-    }
-  }
+  channel.broadcast(groupId, event);
 }
 
 function broadcastLobby(groupId: string): void {
@@ -425,14 +416,9 @@ export function registerSubscriber(
   memberId: string,
   nickname: string,
   isOwner: boolean,
-  fn: Subscriber,
+  fn: SseSubscriber,
 ): { unsubscribe: () => void; initialEvent: OmokEvent } {
-  let bucket = groupSubscribers.get(groupId);
-  if (!bucket) {
-    bucket = new Map();
-    groupSubscribers.set(groupId, bucket);
-  }
-  bucket.set(memberId, fn);
+  channel.add(groupId, memberId, fn);
 
   lobby.join(groupId, memberId, nickname, isOwner);
   broadcastLobby(groupId);
@@ -443,12 +429,9 @@ export function registerSubscriber(
     : { type: "no_match" };
 
   const unsubscribe = () => {
-    const b = groupSubscribers.get(groupId);
-    // 재연결로 더 최신 구독이 들어왔다면(이 fn이 현재 것이 아니면) 아무것도 정리하지 않는다.
-    // 그렇지 않으면 접속 중인데도 로비에서 빠져 참가자 목록에서 사라진다.
-    if (!b || b.get(memberId) !== fn) return;
-    b.delete(memberId);
-    if (b.size === 0) groupSubscribers.delete(groupId);
+    // 재연결로 더 최신 구독이 들어왔으면 remove가 false → 정리하지 않는다
+    // (접속 중인데도 로비에서 빠져 참가자 목록에서 사라지는 것 방지).
+    if (!channel.remove(groupId, memberId, fn)) return;
     lobby.leave(groupId, memberId);
     broadcastLobby(groupId);
   };
@@ -461,6 +444,6 @@ export function destroyGroupOmok(groupId: string): void {
   broadcastToGroup(groupId, { type: "group_destroyed" });
   const match = matches.get(groupId);
   if (match) cleanupMatch(match);
-  groupSubscribers.delete(groupId);
+  channel.clear(groupId);
   lobby.destroy(groupId);
 }

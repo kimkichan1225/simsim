@@ -2,6 +2,7 @@
 // 이 모듈은 실시간 전달(브로드캐스트)만 담당한다. (단어줍기/테트리스 SSE와 동일한 패턴)
 
 import { randomBytes } from "node:crypto";
+import { GameChannel, type SseSubscriber } from "./game-channel";
 
 export type ChatMessage = {
   id: string;
@@ -16,50 +17,31 @@ export type ChatEvent =
   | { type: "message"; message: ChatMessage }
   | { type: "group_destroyed" };
 
-type Subscriber = (event: ChatEvent) => void;
-
 // 한 멤버가 여러 탭을 열 수 있으므로 멤버ID가 아니라 고유 구독ID로 관리한다.
-const groupSubscribers = new Map<string, Map<string, Subscriber>>();
+const channel = new GameChannel();
 
 function subId(): string {
   return randomBytes(9).toString("base64url");
 }
 
 export function broadcastChat(groupId: string, event: ChatEvent): void {
-  const subs = groupSubscribers.get(groupId);
-  if (!subs) return;
-  for (const fn of subs.values()) {
-    try {
-      fn(event);
-    } catch (e) {
-      console.error("chat subscriber error", e);
-    }
-  }
+  channel.broadcast(groupId, event);
 }
 
 export function registerChatSubscriber(
   groupId: string,
-  fn: Subscriber,
+  fn: SseSubscriber,
 ): { unsubscribe: () => void } {
-  let bucket = groupSubscribers.get(groupId);
-  if (!bucket) {
-    bucket = new Map();
-    groupSubscribers.set(groupId, bucket);
-  }
   const id = subId();
-  bucket.set(id, fn);
+  channel.add(groupId, id, fn);
 
   const unsubscribe = () => {
-    const b = groupSubscribers.get(groupId);
-    if (b) {
-      b.delete(id);
-      if (b.size === 0) groupSubscribers.delete(groupId);
-    }
+    channel.remove(groupId, id, fn);
   };
   return { unsubscribe };
 }
 
 export function destroyGroupChat(groupId: string): void {
   broadcastChat(groupId, { type: "group_destroyed" });
-  groupSubscribers.delete(groupId);
+  channel.clear(groupId);
 }

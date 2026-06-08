@@ -1,9 +1,5 @@
 import { prisma } from "@/lib/db";
-import {
-  registerChatSubscriber,
-  type ChatEvent,
-  type ChatMessage,
-} from "@/lib/chat";
+import { registerChatSubscriber, type ChatMessage } from "@/lib/chat";
 import { getCurrentMember } from "@/server/auth";
 
 export const dynamic = "force-dynamic";
@@ -30,7 +26,7 @@ export async function GET(request: Request) {
       // history를 보내기 전(구독 등록 직후) 도착한 실시간 메시지는 버퍼에 모았다가
       // history 뒤에 순서대로 흘려보낸다 → 조회~구독 사이 메시지 누락 방지.
       let historySent = false;
-      const pending: ChatEvent[] = [];
+      const pending: string[] = []; // 직렬화된 메시지 프레임
 
       const realCleanup = () => {
         if (closed) return;
@@ -63,12 +59,12 @@ export async function GET(request: Request) {
         }
       };
 
-      const send = (event: ChatEvent) => {
+      const send = (data: string) => {
         if (!historySent) {
-          pending.push(event);
+          pending.push(data);
           return;
         }
-        safeEnqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+        safeEnqueue(encoder.encode(`data: ${data}\n\n`));
       };
 
       // 1) 먼저 구독을 등록한다(이후 도착 메시지는 pending에 쌓인다)
@@ -106,8 +102,8 @@ export async function GET(request: Request) {
       );
       if (!ok) return;
       historySent = true;
-      for (const ev of pending) {
-        safeEnqueue(encoder.encode(`data: ${JSON.stringify(ev)}\n\n`));
+      for (const data of pending) {
+        safeEnqueue(encoder.encode(`data: ${data}\n\n`));
       }
       pending.length = 0;
 

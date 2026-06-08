@@ -3,6 +3,8 @@
 // 대기방 시트 구독자(SSE)에게 명단을 브로드캐스트한다.
 // 하트비트가 끊기면(브라우저 종료 등) TTL 경과 후 명단에서 내린다.
 
+import { GameChannel, type SseSubscriber } from "./game-channel";
+
 export type WaitingMember = {
   memberId: string;
   nickname: string;
@@ -12,8 +14,6 @@ export type WaitingMember = {
 export type WaitingEvent =
   | { type: "waiting"; members: WaitingMember[] }
   | { type: "group_destroyed" };
-
-type Subscriber = (event: WaitingEvent) => void;
 
 type PresenceEntry = {
   nickname: string;
@@ -25,20 +25,12 @@ type PresenceEntry = {
 const PRESENCE_TTL_MS = 80_000;
 const SWEEP_INTERVAL_MS = 30_000;
 
-const groupSubscribers = new Map<string, Map<string, Subscriber>>();
+const channel = new GameChannel();
 // groupId -> (memberId -> presence)
 const groupPresence = new Map<string, Map<string, PresenceEntry>>();
 
 function broadcastToGroup(groupId: string, event: WaitingEvent): void {
-  const subs = groupSubscribers.get(groupId);
-  if (!subs) return;
-  for (const fn of subs.values()) {
-    try {
-      fn(event);
-    } catch (e) {
-      console.error("waiting subscriber error", e);
-    }
-  }
+  channel.broadcast(groupId, event);
 }
 
 function rosterOf(groupId: string): WaitingEvent {
@@ -102,24 +94,15 @@ export function registerWaitingSubscriber(
   groupId: string,
   memberId: string,
   nickname: string,
-  fn: Subscriber,
+  fn: SseSubscriber,
 ): { unsubscribe: () => void; initialEvent: WaitingEvent } {
-  let bucket = groupSubscribers.get(groupId);
-  if (!bucket) {
-    bucket = new Map();
-    groupSubscribers.set(groupId, bucket);
-  }
-  bucket.set(memberId, fn);
+  channel.add(groupId, memberId, fn);
 
   // 대기방 탭에 들어왔다는 것 자체가 위치 보고이기도 하다.
   reportPresence(groupId, memberId, nickname, "waiting");
 
   const unsubscribe = () => {
-    const b = groupSubscribers.get(groupId);
-    if (b && b.get(memberId) === fn) {
-      b.delete(memberId);
-      if (b.size === 0) groupSubscribers.delete(groupId);
-    }
+    channel.remove(groupId, memberId, fn);
     // 위치는 지우지 않는다 — 다른 탭으로 이동하면 그쪽에서 다시 보고된다.
   };
 
@@ -129,6 +112,6 @@ export function registerWaitingSubscriber(
 // 방 폭파 시 대기방 구독/명단 정리.
 export function destroyGroupWaiting(groupId: string): void {
   broadcastToGroup(groupId, { type: "group_destroyed" });
-  groupSubscribers.delete(groupId);
+  channel.clear(groupId);
   groupPresence.delete(groupId);
 }

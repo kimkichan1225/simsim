@@ -9,6 +9,7 @@
 //   - 뽑기/패스, 기권, 종료·점수 판정
 
 import { randomBytes } from "node:crypto";
+import { GameChannel, type SseSubscriber } from "./game-channel";
 import { GroupLobby, type LobbyMemberView } from "./lobby";
 import {
   INITIAL_MELD_POINTS,
@@ -74,8 +75,6 @@ export type RummyEvent =
   | { type: "lobby"; members: LobbyMemberView[] }
   | { type: "group_destroyed" };
 
-type Subscriber = (event: RummyEvent) => void;
-
 type RummyPlayer = {
   memberId: string;
   nickname: string;
@@ -104,7 +103,7 @@ type RummyMatch = {
 };
 
 const matches = new Map<string, RummyMatch>();
-const groupSubscribers = new Map<string, Map<string, Subscriber>>();
+const channel = new GameChannel();
 const lobby = new GroupLobby((groupId) => broadcastLobby(groupId));
 
 function newId(bytes: number): string {
@@ -112,15 +111,7 @@ function newId(bytes: number): string {
 }
 
 function broadcastToGroup(groupId: string, event: RummyEvent): void {
-  const subs = groupSubscribers.get(groupId);
-  if (!subs) return;
-  for (const fn of subs.values()) {
-    try {
-      fn(event);
-    } catch (e) {
-      console.error("rummy subscriber error", e);
-    }
-  }
+  channel.broadcast(groupId, event);
 }
 
 function broadcastLobby(groupId: string): void {
@@ -223,15 +214,9 @@ export function snapshotFor(
 
 // 모든 구독자에게 각자의 개인화 스냅샷을 보낸다(손패는 본인 것만).
 function broadcastSnapshots(match: RummyMatch): void {
-  const subs = groupSubscribers.get(match.groupId);
-  if (!subs) return;
-  for (const [memberId, fn] of subs) {
-    try {
-      fn(snapshotFor(match, memberId));
-    } catch (e) {
-      console.error("rummy subscriber error", e);
-    }
-  }
+  channel.broadcastEach(match.groupId, (memberId) =>
+    snapshotFor(match, memberId),
+  );
 }
 
 export function getMatch(groupId: string): RummyMatch | null {
@@ -690,14 +675,9 @@ export function registerSubscriber(
   memberId: string,
   nickname: string,
   isOwner: boolean,
-  fn: Subscriber,
+  fn: SseSubscriber,
 ): { unsubscribe: () => void; initialEvent: RummyEvent } {
-  let bucket = groupSubscribers.get(groupId);
-  if (!bucket) {
-    bucket = new Map();
-    groupSubscribers.set(groupId, bucket);
-  }
-  bucket.set(memberId, fn);
+  channel.add(groupId, memberId, fn);
 
   lobby.join(groupId, memberId, nickname, isOwner);
   broadcastLobby(groupId);
@@ -708,12 +688,8 @@ export function registerSubscriber(
     : { type: "no_match" };
 
   const unsubscribe = () => {
-    const b = groupSubscribers.get(groupId);
-    // 재연결로 더 최신 구독이 들어왔다면(이 fn이 현재 것이 아니면) 아무것도 정리하지 않는다.
-    // 그렇지 않으면 접속 중인데도 로비에서 빠져 참가자 목록에서 사라진다.
-    if (!b || b.get(memberId) !== fn) return;
-    b.delete(memberId);
-    if (b.size === 0) groupSubscribers.delete(groupId);
+    // 재연결로 더 최신 구독이 들어왔으면 remove가 false → 정리하지 않는다.
+    if (!channel.remove(groupId, memberId, fn)) return;
     lobby.leave(groupId, memberId);
     broadcastLobby(groupId);
   };
@@ -726,6 +702,6 @@ export function destroyGroupRummy(groupId: string): void {
   broadcastToGroup(groupId, { type: "group_destroyed" });
   const match = matches.get(groupId);
   if (match) cleanupMatch(match);
-  groupSubscribers.delete(groupId);
+  channel.clear(groupId);
   lobby.destroy(groupId);
 }

@@ -7,6 +7,7 @@
 // 만 담당하는 권위-경량 구조다.
 
 import { randomBytes } from "node:crypto";
+import { GameChannel, type SseSubscriber } from "./game-channel";
 import { GroupLobby, type LobbyMemberView } from "./lobby";
 
 export const TETRIS_COLS = 10;
@@ -61,8 +62,6 @@ export type TetrisEvent =
   | { type: "lobby"; members: LobbyMemberView[] }
   | { type: "group_destroyed" };
 
-type Subscriber = (event: TetrisEvent) => void;
-
 type TetrisPlayer = {
   memberId: string;
   nickname: string;
@@ -83,7 +82,7 @@ type TetrisMatch = {
 };
 
 const matches = new Map<string, TetrisMatch>();
-const groupSubscribers = new Map<string, Map<string, Subscriber>>();
+const channel = new GameChannel();
 // 자리비움 전환이 일어나면 로비 상태를 모두에게 다시 알린다.
 const lobby = new GroupLobby((groupId) => broadcastLobby(groupId));
 
@@ -92,15 +91,7 @@ function newId(bytes: number): string {
 }
 
 function broadcastToGroup(groupId: string, event: TetrisEvent): void {
-  const subs = groupSubscribers.get(groupId);
-  if (!subs) return;
-  for (const fn of subs.values()) {
-    try {
-      fn(event);
-    } catch (e) {
-      console.error("tetris subscriber error", e);
-    }
-  }
+  channel.broadcast(groupId, event);
 }
 
 function broadcastLobby(groupId: string): void {
@@ -394,14 +385,9 @@ export function registerSubscriber(
   memberId: string,
   nickname: string,
   isOwner: boolean,
-  fn: Subscriber,
+  fn: SseSubscriber,
 ): { unsubscribe: () => void; initialEvent: TetrisEvent } {
-  let bucket = groupSubscribers.get(groupId);
-  if (!bucket) {
-    bucket = new Map();
-    groupSubscribers.set(groupId, bucket);
-  }
-  bucket.set(memberId, fn);
+  channel.add(groupId, memberId, fn);
 
   lobby.join(groupId, memberId, nickname, isOwner);
   broadcastLobby(groupId);
@@ -412,12 +398,8 @@ export function registerSubscriber(
     : { type: "no_match" };
 
   const unsubscribe = () => {
-    const b = groupSubscribers.get(groupId);
-    // 재연결로 더 최신 구독이 들어왔다면(이 fn이 현재 것이 아니면) 아무것도 정리하지 않는다.
-    // 그렇지 않으면 접속 중인데도 로비에서 빠져 참가자 목록에서 사라진다.
-    if (!b || b.get(memberId) !== fn) return;
-    b.delete(memberId);
-    if (b.size === 0) groupSubscribers.delete(groupId);
+    // 재연결로 더 최신 구독이 들어왔으면 remove가 false → 정리하지 않는다.
+    if (!channel.remove(groupId, memberId, fn)) return;
     lobby.leave(groupId, memberId);
     broadcastLobby(groupId);
   };
@@ -430,6 +412,6 @@ export function destroyGroupTetris(groupId: string): void {
   broadcastToGroup(groupId, { type: "group_destroyed" });
   const match = matches.get(groupId);
   if (match) matches.delete(groupId);
-  groupSubscribers.delete(groupId);
+  channel.clear(groupId);
   lobby.destroy(groupId);
 }

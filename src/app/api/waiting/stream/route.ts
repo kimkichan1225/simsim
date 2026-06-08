@@ -1,92 +1,26 @@
-import { registerWaitingSubscriber, type WaitingEvent } from "@/lib/waiting";
+import { registerWaitingSubscriber } from "@/lib/waiting";
+import { sseResponse } from "@/lib/sse-route";
 import { getCurrentMember } from "@/server/auth";
 
 export const dynamic = "force-dynamic";
 
+// 대기방 presence 전용 SSE — 공용 sseResponse 팩토리로 처리한다.
 export async function GET(request: Request) {
   const me = await getCurrentMember();
   if (!me) {
     return new Response("unauthorized", { status: 401 });
   }
 
-  const encoder = new TextEncoder();
-  let cleanup = () => {
-    /* replaced below */
-  };
-
-  const stream = new ReadableStream<Uint8Array>({
-    start(controller) {
-      let closed = false;
-      let pingTimer: ReturnType<typeof setInterval> | null = null;
-      let unsubscribe: (() => void) | null = null;
-
-      const realCleanup = () => {
-        if (closed) return;
-        closed = true;
-        if (pingTimer) {
-          clearInterval(pingTimer);
-          pingTimer = null;
-        }
-        if (unsubscribe) {
-          unsubscribe();
-          unsubscribe = null;
-        }
-        request.signal.removeEventListener("abort", realCleanup);
-        try {
-          controller.close();
-        } catch {
-          /* ignore */
-        }
-      };
-      cleanup = realCleanup;
-
-      const safeEnqueue = (chunk: Uint8Array): boolean => {
-        if (closed) return false;
-        try {
-          controller.enqueue(chunk);
-          return true;
-        } catch {
-          realCleanup();
-          return false;
-        }
-      };
-
-      const send = (event: WaitingEvent) => {
-        safeEnqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
-      };
-
-      const reg = registerWaitingSubscriber(
-        me.groupId,
-        me.memberId,
-        me.nickname,
-        send,
-      );
-      unsubscribe = reg.unsubscribe;
-
-      const ok = safeEnqueue(
-        encoder.encode(`data: ${JSON.stringify(reg.initialEvent)}\n\n`),
-      );
-      if (!ok) {
-        return;
-      }
-
-      pingTimer = setInterval(() => {
-        safeEnqueue(encoder.encode(`: ping\n\n`));
-      }, 15000);
-
-      request.signal.addEventListener("abort", realCleanup);
-    },
-    cancel() {
-      cleanup();
-    },
-  });
-
-  return new Response(stream, {
-    headers: {
-      "Content-Type": "text/event-stream; charset=utf-8",
-      "Cache-Control": "no-cache, no-transform",
-      Connection: "keep-alive",
-      "X-Accel-Buffering": "no",
-    },
+  return sseResponse(request, (send) => {
+    const reg = registerWaitingSubscriber(
+      me.groupId,
+      me.memberId,
+      me.nickname,
+      send,
+    );
+    return {
+      initialData: JSON.stringify(reg.initialEvent),
+      unsubscribe: reg.unsubscribe,
+    };
   });
 }

@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { rollWord, type Word } from "./words";
+import { GameChannel, type SseSubscriber } from "./game-channel";
 import { GroupLobby, type LobbyMemberView } from "./lobby";
 
 export type GameStatus = "running" | "ended";
@@ -46,8 +47,6 @@ export type GameEvent =
   | { type: "lobby"; members: LobbyMemberView[] }
   | { type: "group_destroyed" };
 
-type Subscriber = (event: GameEvent) => void;
-
 type ActiveGame = {
   gameId: string;
   groupId: string;
@@ -63,7 +62,7 @@ type ActiveGame = {
 };
 
 const games = new Map<string, ActiveGame>();
-const groupSubscribers = new Map<string, Map<string, Subscriber>>();
+const channel = new GameChannel();
 // 자리비움 전환이 일어나면 로비 상태를 모두에게 다시 알린다.
 const lobby = new GroupLobby((groupId) => broadcastLobby(groupId));
 
@@ -75,15 +74,7 @@ function newId(bytes: number): string {
 }
 
 function broadcastToGroup(groupId: string, event: GameEvent): void {
-  const subs = groupSubscribers.get(groupId);
-  if (!subs) return;
-  for (const fn of subs.values()) {
-    try {
-      fn(event);
-    } catch (e) {
-      console.error("subscriber error", e);
-    }
-  }
+  channel.broadcast(groupId, event);
 }
 
 function broadcastLobby(groupId: string): void {
@@ -248,14 +239,9 @@ export function registerSubscriber(
   memberId: string,
   nickname: string,
   isOwner: boolean,
-  fn: Subscriber,
+  fn: SseSubscriber,
 ): { unsubscribe: () => void; initialEvent: GameEvent } {
-  let bucket = groupSubscribers.get(groupId);
-  if (!bucket) {
-    bucket = new Map();
-    groupSubscribers.set(groupId, bucket);
-  }
-  bucket.set(memberId, fn);
+  channel.add(groupId, memberId, fn);
 
   // 접속 = 대기실 입장. 다른 접속자에게도 갱신을 알린다(본인 포함).
   lobby.join(groupId, memberId, nickname, isOwner);
@@ -265,12 +251,8 @@ export function registerSubscriber(
   const initialEvent: GameEvent = game ? snapshotOf(game) : { type: "no_game" };
 
   const unsubscribe = () => {
-    const b = groupSubscribers.get(groupId);
-    // 재연결로 더 최신 구독이 들어왔다면(이 fn이 현재 것이 아니면) 아무것도 정리하지 않는다.
-    // 그렇지 않으면 접속 중인데도 로비에서 빠져 참가자 목록에서 사라진다.
-    if (!b || b.get(memberId) !== fn) return;
-    b.delete(memberId);
-    if (b.size === 0) groupSubscribers.delete(groupId);
+    // 재연결로 더 최신 구독이 들어왔으면 remove가 false → 정리하지 않는다.
+    if (!channel.remove(groupId, memberId, fn)) return;
     lobby.leave(groupId, memberId);
     broadcastLobby(groupId);
   };
@@ -279,10 +261,7 @@ export function registerSubscriber(
 }
 
 export function removeSubscriber(groupId: string, memberId: string): void {
-  const b = groupSubscribers.get(groupId);
-  if (!b) return;
-  b.delete(memberId);
-  if (b.size === 0) groupSubscribers.delete(groupId);
+  channel.removeKey(groupId, memberId);
 }
 
 // 방이 폭파될 때 인메모리 게임/타이머/구독 상태를 모두 정리한다.
@@ -294,7 +273,7 @@ export function destroyGroup(groupId: string): void {
     cleanupGame(game);
     games.delete(groupId);
   }
-  groupSubscribers.delete(groupId);
+  channel.clear(groupId);
   lobby.destroy(groupId);
 }
 
