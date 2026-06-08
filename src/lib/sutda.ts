@@ -22,7 +22,13 @@ const JOIN_WINDOW_MS = 8_000;
 export const SUTDA_ANTE = 100;
 const MIN_BET = 100;
 
-export type SutdaStatus = "joining" | "bet1" | "bet2" | "select" | "ended";
+export type SutdaStatus =
+  | "joining"
+  | "openpick" // 첫 2장 중 오픈할 1장 선택
+  | "bet1"
+  | "bet2"
+  | "select"
+  | "ended";
 export type SutdaAction = "call" | "bbing" | "ttadang" | "half";
 
 // 쇼다운 서열 — 상대(본인 제외 안 죽은 사람들)의 카테고리에 따라 특수패가 발동한다.
@@ -94,7 +100,7 @@ export type SutdaPlayerView = {
   folded: boolean;
   selected: boolean;
   cardCount: number; // 받은 패 수
-  openCard: SutdaCard | null; // 베팅 중 공개되는 첫 2장 중 1장(둘째 장)
+  openCard: SutdaCard | null; // 본인이 오픈하기로 고른 첫 2장 중 1장
   cards: SutdaCard[] | null; // 공개 시(쇼다운에서 안 죽은 패의 선택 2장)
   hand: string | null;
 };
@@ -118,6 +124,7 @@ export type SutdaSnapshot = {
   pot: number;
   currentBet: number;
   myCards: SutdaCard[]; // 본인 패(2 또는 3장)
+  myOpenIdx: number | null; // 본인이 고른 오픈 카드 인덱스
   myChosen: [number, number] | null;
   results?: SutdaResult[];
 };
@@ -138,6 +145,7 @@ type SutdaPlayer = {
   gold: number;
   startGold: number;
   cards: SutdaCard[];
+  openIdx: number | null; // 오픈하기로 고른 카드 인덱스(0 또는 1)
   chosen: [number, number] | null;
   hand: { cat: HandCategory; name: string } | null;
   bet: number;
@@ -155,6 +163,7 @@ type SutdaMatch = {
   pot: number;
   currentBet: number;
   roundBase: number; // 이번 라운드 시작 베팅액(삥 가능 판정용)
+  pendingBet1Base: number; // openpick 후 시작할 1라운드 베팅액(첫판 앤티, 재경기 0)
   actedCount: number;
   results: SutdaResult[] | null;
   dealTimer: ReturnType<typeof setTimeout> | null;
@@ -211,7 +220,8 @@ function playerView(
 ): SutdaPlayerView {
   const showdown = match.status === "ended" && !p.folded;
   const inHand =
-    (match.status === "bet1" ||
+    (match.status === "openpick" ||
+      match.status === "bet1" ||
       match.status === "bet2" ||
       match.status === "select") &&
     !p.folded;
@@ -227,8 +237,9 @@ function playerView(
     folded: p.folded,
     selected: p.chosen != null,
     cardCount: p.cards.length,
-    // 첫 2장 중 둘째 장이 오픈(2장 받고 1장 오픈 룰)
-    openCard: inHand && p.cards.length >= 2 ? p.cards[1] : null,
+    // 본인이 고른 오픈 카드(아직 안 골랐으면 비공개)
+    openCard:
+      inHand && p.openIdx != null ? (p.cards[p.openIdx] ?? null) : null,
     cards: showdown ? chosenCards : null,
     hand: showdown ? (p.hand?.name ?? null) : null,
   };
@@ -252,6 +263,7 @@ export function snapshotFor(match: SutdaMatch, memberId: string): SutdaSnapshot 
     pot: match.pot,
     currentBet: match.currentBet,
     myCards: me ? me.cards : [],
+    myOpenIdx: me?.openIdx ?? null,
     myChosen: me?.chosen ?? null,
     results: match.results ?? undefined,
   };
@@ -289,6 +301,7 @@ export function startMatch(input: {
     pot: 0,
     currentBet: 0,
     roundBase: 0,
+    pendingBet1Base: SUTDA_ANTE,
     actedCount: 0,
     results: null,
     dealTimer: null,
@@ -333,6 +346,7 @@ function addPlayer(
     gold,
     startGold: gold,
     cards: [],
+    openIdx: null,
     chosen: null,
     hand: null,
     bet: 0,
@@ -386,13 +400,42 @@ function deal(match: SutdaMatch): void {
       continue;
     }
     p.cards = [deck.pop()!, deck.pop()!];
+    p.openIdx = null;
     p.chosen = null;
     p.hand = null;
     p.gold -= SUTDA_ANTE;
     p.bet += SUTDA_ANTE;
     match.pot += SUTDA_ANTE;
   }
-  startBettingRound(match, "bet1", SUTDA_ANTE);
+  // 2장 받았으면 먼저 오픈할 1장을 고른다
+  match.status = "openpick";
+  match.pendingBet1Base = SUTDA_ANTE;
+  broadcastSnapshots(match);
+}
+
+// 첫 2장 중 오픈할 카드 선택. 전원이 고르면 1라운드 베팅 시작.
+export function selectOpen(input: {
+  groupId: string;
+  memberId: string;
+  idx: number;
+}): { ok: boolean; reason?: "not_picking" | "not_player" | "bad_index" } {
+  const match = matches.get(input.groupId);
+  if (!match || match.status !== "openpick") {
+    return { ok: false, reason: "not_picking" };
+  }
+  const p = match.players.get(input.memberId);
+  if (!p || p.folded) return { ok: false, reason: "not_player" };
+  if (input.idx !== 0 && input.idx !== 1) {
+    return { ok: false, reason: "bad_index" };
+  }
+  p.openIdx = input.idx;
+  // 안 죽은 전원이 골랐으면 베팅 시작
+  if (activePlayers(match).every((q) => q.openIdx != null)) {
+    startBettingRound(match, "bet1", match.pendingBet1Base);
+  } else {
+    broadcastSnapshots(match);
+  }
+  return { ok: true };
 }
 
 // 3번째 카드 분배 + 2라운드 베팅
@@ -611,10 +654,14 @@ function redeal(match: SutdaMatch): void {
   const deck = buildDeck();
   for (const p of activePlayers(match)) {
     p.cards = [deck.pop()!, deck.pop()!];
+    p.openIdx = null;
     p.chosen = null;
     p.hand = null;
   }
-  startBettingRound(match, "bet1", 0);
+  // 재경기는 앤티 없이(판돈 유지) — 오픈 카드부터 다시 고른다
+  match.pendingBet1Base = 0;
+  match.status = "openpick";
+  broadcastSnapshots(match);
 }
 
 function endMatch(match: SutdaMatch): void {

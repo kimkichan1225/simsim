@@ -44,13 +44,14 @@ type Result = {
 type Snapshot = {
   type: "snapshot";
   matchId: string;
-  status: "joining" | "bet1" | "bet2" | "select" | "ended";
+  status: "joining" | "openpick" | "bet1" | "bet2" | "select" | "ended";
   round: 1 | 2;
   players: PlayerView[];
   turnMemberId: string | null;
   pot: number;
   currentBet: number;
   myCards: SutdaCard[];
+  myOpenIdx: number | null;
   myChosen: [number, number] | null;
   results?: Result[];
 };
@@ -73,7 +74,13 @@ type WalletMember = {
 };
 type Wallet = { gold: number; netProfit: number; members: WalletMember[] };
 
-type Phase = "lobby" | "joining" | "betting" | "selecting" | "result";
+type Phase =
+  | "lobby"
+  | "joining"
+  | "openpick"
+  | "betting"
+  | "selecting"
+  | "result";
 
 export function SutdaGame({
   myMemberId,
@@ -94,6 +101,7 @@ export function SutdaGame({
   const [pot, setPot] = useState(0);
   const [currentBet, setCurrentBet] = useState(ANTE);
   const [myCards, setMyCards] = useState<SutdaCard[]>([]);
+  const [myOpenIdx, setMyOpenIdx] = useState<number | null>(null);
   const [myChosen, setMyChosen] = useState<[number, number] | null>(null);
   const [results, setResults] = useState<Result[] | null>(null);
   const [lobbyMembers, setLobbyMembers] = useState<LobbyMember[]>([]);
@@ -136,11 +144,15 @@ export function SutdaGame({
           setPot(ev.pot);
           setCurrentBet(ev.currentBet);
           setMyCards(ev.myCards);
+          setMyOpenIdx(ev.myOpenIdx);
           setMyChosen(ev.myChosen);
           setActError(null);
           if (ev.status === "joining") {
             setResults(null);
             setPhase("joining");
+          } else if (ev.status === "openpick") {
+            setResults(null);
+            setPhase("openpick");
           } else if (ev.status === "bet1" || ev.status === "bet2") {
             setResults(null);
             setPick([]);
@@ -242,6 +254,14 @@ export function SutdaGame({
     void fetch("/api/sutda/fold", { method: "POST" }).catch(() => undefined);
   }, []);
 
+  const doOpen = useCallback((idx: number) => {
+    void fetch("/api/sutda/open", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ idx }),
+    }).catch(() => undefined);
+  }, []);
+
   const togglePick = useCallback((idx: number) => {
     setPick((prev) => {
       if (prev.includes(idx)) return prev.filter((i) => i !== idx);
@@ -297,7 +317,10 @@ export function SutdaGame({
   );
 
   const inGame =
-    phase === "betting" || phase === "joining" || phase === "selecting";
+    phase === "betting" ||
+    phase === "joining" ||
+    phase === "openpick" ||
+    phase === "selecting";
 
   return (
     <div className="flex flex-col gap-3 w-full max-w-2xl mx-auto pt-4 pb-8">
@@ -325,11 +348,23 @@ export function SutdaGame({
         </div>
       )}
 
-      {(phase === "betting" || phase === "selecting" || phase === "result") && (
+      {(phase === "openpick" ||
+        phase === "betting" ||
+        phase === "selecting" ||
+        phase === "result") && (
         <PlayersTable
           players={players}
           turnMemberId={turnMemberId}
           myMemberId={myMemberId}
+        />
+      )}
+
+      {/* 오픈 카드 선택 단계 */}
+      {phase === "openpick" && amPlaying && (
+        <OpenPicker
+          cards={myCards}
+          openIdx={myOpenIdx}
+          onPick={doOpen}
         />
       )}
 
@@ -338,6 +373,7 @@ export function SutdaGame({
           cards={myCards}
           phase={phase}
           pick={pick}
+          openIdx={myOpenIdx}
           chosen={myChosen}
           handName={myHand?.name ?? null}
           onToggle={togglePick}
@@ -677,10 +713,48 @@ function CardView({
   );
 }
 
+function OpenPicker({
+  cards,
+  openIdx,
+  onPick,
+}: {
+  cards: SutdaCard[];
+  openIdx: number | null;
+  onPick: (idx: number) => void;
+}) {
+  const done = openIdx != null;
+  return (
+    <div className="flex flex-col gap-2 p-3 border-2 border-[var(--sheet-active)] bg-[var(--sheet-active-bg)] rounded-lg">
+      <span className="text-[12px] font-medium text-center text-[var(--sheet-fg)]">
+        {done
+          ? "오픈 카드 선택 완료 — 다른 사람을 기다리는 중..."
+          : "공개할 카드 1장을 고르세요 (나머지 1장은 비밀)"}
+      </span>
+      <div className="flex gap-2 justify-center items-start">
+        {cards.map((c, i) => (
+          <div key={c.id} className="flex flex-col items-center gap-0.5">
+            <CardView
+              card={c}
+              big
+              selected={openIdx === i}
+              selectable={!done}
+              onClick={done ? undefined : () => onPick(i)}
+            />
+            {openIdx === i && (
+              <span className="text-[9px] text-[#d93025]">공개됨</span>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function MyHand({
   cards,
   phase,
   pick,
+  openIdx,
   chosen,
   handName,
   onToggle,
@@ -688,6 +762,7 @@ function MyHand({
   cards: SutdaCard[];
   phase: Phase;
   pick: number[];
+  openIdx: number | null;
   chosen: [number, number] | null;
   handName: string | null;
   onToggle: (idx: number) => void;
@@ -719,7 +794,7 @@ function MyHand({
                 selectable={selecting}
                 onClick={selecting ? () => onToggle(i) : undefined}
               />
-              {i === 1 && (
+              {i === openIdx && (
                 <span className="text-[9px] text-[#d93025]">공개됨</span>
               )}
             </div>
@@ -780,15 +855,21 @@ function PlayersTable({
               ) : p.cards ? (
                 // 쇼다운 — 선택한 2장 공개
                 p.cards.map((c) => <CardView key={c.id} card={c} />)
+              ) : p.openCard ? (
+                // 베팅 중 — 본인이 고른 오픈 카드 1장 공개, 나머지는 뒷면
+                <>
+                  <CardView card={p.openCard} />
+                  {Array.from({ length: Math.max(0, p.cardCount - 1) }).map(
+                    (_, i) => (
+                      <CardView key={i} hidden />
+                    ),
+                  )}
+                </>
               ) : (
-                // 베팅 중 — 둘째 장(openCard)만 공개, 나머지는 뒷면
-                Array.from({ length: Math.max(1, p.cardCount) }).map((_, i) =>
-                  i === 1 && p.openCard ? (
-                    <CardView key={p.openCard.id} card={p.openCard} />
-                  ) : (
-                    <CardView key={i} hidden />
-                  ),
-                )
+                // 아직 오픈 선택 전 — 전부 뒷면
+                Array.from({ length: Math.max(1, p.cardCount) }).map((_, i) => (
+                  <CardView key={i} hidden />
+                ))
               )}
             </div>
             {p.hand && !p.folded ? (
