@@ -12,10 +12,10 @@ import {
   DECK_SPEC,
   evaluate2,
   type HandCategory,
-  type HwatuCard,
+  type SutdaCard,
 } from "./sutda-rules";
 
-export type { CardKind, HwatuCard } from "./sutda-rules";
+export type { Suit, SutdaCard } from "./sutda-rules";
 
 export const SUTDA_MAX_PLAYERS = 6;
 const JOIN_WINDOW_MS = 8_000;
@@ -54,7 +54,26 @@ function showdownRank(cat: HandCategory, others: HandCategory[]): number {
   }
 }
 
-// 재경기 여부 — 구사/멍구사 보유자가 있고 판이 약할 때.
+// 안 죽은 사람 중 최고 서열(특수패 상황 반영) 보유자들. 동점이면 여러 명.
+function computeWinners(active: SutdaPlayer[]): SutdaPlayer[] {
+  if (active.length === 0) return [];
+  if (active.length === 1) return [active[0]];
+  let best = -Infinity;
+  let winners: SutdaPlayer[] = [];
+  for (const p of active) {
+    const others = active.filter((o) => o !== p).map((o) => o.hand!.cat);
+    const r = showdownRank(p.hand!.cat, others);
+    if (r > best) {
+      best = r;
+      winners = [p];
+    } else if (r === best) {
+      winners.push(p);
+    }
+  }
+  return winners;
+}
+
+// 구사 재경기 여부 — 구사/멍구사 보유자가 있고 판이 약할 때.
 function isReplay(cats: HandCategory[]): boolean {
   const hasGwang = cats.some((c) => c.t === "g38" || c.t === "gwang");
   const hasDdaeng = cats.some((c) => c.t === "ddaeng");
@@ -75,7 +94,7 @@ export type SutdaPlayerView = {
   folded: boolean;
   selected: boolean;
   cardCount: number; // 받은 패 수(상대 패 뒷면 개수)
-  cards: HwatuCard[] | null; // 공개 시(쇼다운에서 안 죽은 패의 선택 2장)
+  cards: SutdaCard[] | null; // 공개 시(쇼다운에서 안 죽은 패의 선택 2장)
   hand: string | null;
 };
 
@@ -97,7 +116,7 @@ export type SutdaSnapshot = {
   turnMemberId: string | null;
   pot: number;
   currentBet: number;
-  myCards: HwatuCard[]; // 본인 패(2 또는 3장)
+  myCards: SutdaCard[]; // 본인 패(2 또는 3장)
   myChosen: [number, number] | null;
   results?: SutdaResult[];
 };
@@ -117,7 +136,7 @@ type SutdaPlayer = {
   nickname: string;
   gold: number;
   startGold: number;
-  cards: HwatuCard[];
+  cards: SutdaCard[];
   chosen: [number, number] | null;
   hand: { cat: HandCategory; name: string } | null;
   bet: number;
@@ -149,8 +168,8 @@ function newId(bytes: number): string {
   return randomBytes(bytes).toString("base64url");
 }
 
-function buildDeck(): HwatuCard[] {
-  const deck = DECK_SPEC.map(([m, k], i) => ({ id: `c${i}`, month: m, kind: k }));
+function buildDeck(): SutdaCard[] {
+  const deck = DECK_SPEC.map(([num, suit], i) => ({ id: `c${i}`, num, suit }));
   for (let j = deck.length - 1; j > 0; j -= 1) {
     const k = Math.floor(Math.random() * (j + 1));
     [deck[j], deck[k]] = [deck[k], deck[j]];
@@ -192,7 +211,7 @@ function playerView(
   const showdown = match.status === "ended" && !p.folded;
   const chosenCards =
     p.chosen && p.cards.length >= 2
-      ? ([p.cards[p.chosen[0]], p.cards[p.chosen[1]]] as HwatuCard[])
+      ? ([p.cards[p.chosen[0]], p.cards[p.chosen[1]]] as SutdaCard[])
       : null;
   return {
     memberId: p.memberId,
@@ -559,9 +578,20 @@ function maybeShowdown(match: SutdaMatch): boolean {
     p.hand = evaluate2(p.cards[i], p.cards[j]);
   }
   const cats = active.map((p) => p.hand!.cat);
+  // 구사/멍구사 재경기 — 안 죽은 전원이 새 카드
   if (isReplay(cats)) {
     broadcastToGroup(match.groupId, { type: "replay" });
-    redeal(match); // 판돈 유지, 새 카드로 재경기
+    redeal(match);
+    return true;
+  }
+  // 무승부 재경기 — 최고 족보가 둘 이상이면 그 동점자끼리만 재경기(판돈 유지)
+  const winners = computeWinners(active);
+  if (winners.length >= 2) {
+    broadcastToGroup(match.groupId, { type: "replay" });
+    for (const p of active) {
+      if (!winners.includes(p)) p.folded = true;
+    }
+    redeal(match);
     return true;
   }
   endMatch(match);
@@ -593,22 +623,7 @@ function endMatch(match: SutdaMatch): void {
     if (p.chosen) p.hand = evaluate2(p.cards[p.chosen[0]], p.cards[p.chosen[1]]);
   }
 
-  let winners: SutdaPlayer[] = [];
-  if (active.length === 1) {
-    winners = [active[0]];
-  } else if (active.length > 1) {
-    let best = -Infinity;
-    for (const p of active) {
-      const others = active.filter((o) => o !== p).map((o) => o.hand!.cat);
-      const r = showdownRank(p.hand!.cat, others);
-      if (r > best) {
-        best = r;
-        winners = [p];
-      } else if (r === best) {
-        winners.push(p);
-      }
-    }
-  }
+  const winners = computeWinners(active);
 
   if (winners.length > 0) {
     const share = Math.floor(match.pot / winners.length);

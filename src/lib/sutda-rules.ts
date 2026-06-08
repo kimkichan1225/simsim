@@ -1,34 +1,35 @@
-// 섯다 화투 카드·족보 순수 로직 — 서버(sutda.ts)와 클라(SutdaGame)가 공유한다.
-// 광은 1·3·8월. 특수패는 패 종류(광·열끗·띠)까지 일치해야 한다.
+// LA섯다 카드·족보 순수 로직 — 서버(sutda.ts)와 클라(SutdaGame)가 공유한다.
+// 트럼프 ♠스페이드·♦다이아 A(1)~10, 총 20장. 광 = ♠A·♠3·♠8.
+// 특수패는 ♠스페이드끼리의 조합이어야 한다.
 
-export type CardKind = "gwang" | "yeol" | "tti"; // 광·열끗·띠
-export type HwatuCard = { id: string; month: number; kind: CardKind };
+export type Suit = "spade" | "diamond";
+// num: 1=A, 2~10
+export type SutdaCard = { id: string; num: number; suit: Suit };
 
 // 쇼다운에서 상황(상대 패)에 따라 서열이 바뀌는 특수패가 있어 카테고리로 분리한다.
 export type HandCategory =
-  | { t: "g38" } // 38광땡
-  | { t: "gwang" } // 13/18광땡
+  | { t: "g38" } // 삼팔광땡
+  | { t: "gwang" } // 일팔·일삼광땡
   | { t: "ddaeng"; v: number } // 1~10땡(10=장땡)
-  | { t: "amhaeng" } // 암행어사
-  | { t: "ddangjabi" } // 땡잡이
+  | { t: "amhaeng" } // 47암행어사
+  | { t: "ddangjabi" } // 37땡잡이
   | { t: "menggusa" } // 멍텅구리구사
   | { t: "gusa" } // 구사
   | { t: "special"; r: number; name: string } // 알리/독사/구삥/장삥/장사/세륙
   | { t: "kkut"; v: number }; // 0~9끗
 
-// 섯다 20장 구성(피 제외). 광은 1·3·8월.
-export const DECK_SPEC: [number, CardKind][] = [
-  [1, "gwang"], [1, "tti"],
-  [2, "yeol"], [2, "tti"],
-  [3, "gwang"], [3, "tti"],
-  [4, "yeol"], [4, "tti"],
-  [5, "yeol"], [5, "tti"],
-  [6, "yeol"], [6, "tti"],
-  [7, "yeol"], [7, "tti"],
-  [8, "gwang"], [8, "yeol"],
-  [9, "yeol"], [9, "tti"],
-  [10, "yeol"], [10, "tti"],
+// 20장 구성 — ♠ A~10, ♦ A~10
+export const DECK_SPEC: [number, Suit][] = [
+  [1, "spade"], [2, "spade"], [3, "spade"], [4, "spade"], [5, "spade"],
+  [6, "spade"], [7, "spade"], [8, "spade"], [9, "spade"], [10, "spade"],
+  [1, "diamond"], [2, "diamond"], [3, "diamond"], [4, "diamond"], [5, "diamond"],
+  [6, "diamond"], [7, "diamond"], [8, "diamond"], [9, "diamond"], [10, "diamond"],
 ];
+
+// 광 = ♠ A·3·8
+export function isGwang(c: SutdaCard): boolean {
+  return c.suit === "spade" && (c.num === 1 || c.num === 3 || c.num === 8);
+}
 
 const SPECIALS: Record<string, [number, string]> = {
   "1,2": [780, "알리"],
@@ -39,58 +40,44 @@ const SPECIALS: Record<string, [number, string]> = {
   "4,6": [730, "세륙"],
 };
 
-function isPair(
-  a: HwatuCard,
-  b: HwatuCard,
-  m1: number,
-  k1: CardKind,
-  m2: number,
-  k2: CardKind,
-): boolean {
-  return (
-    (a.month === m1 && a.kind === k1 && b.month === m2 && b.kind === k2) ||
-    (a.month === m2 && a.kind === k2 && b.month === m1 && b.kind === k1)
-  );
-}
-
 // 두 장의 족보. name은 화면 표시용.
 export function evaluate2(
-  a: HwatuCard,
-  b: HwatuCard,
+  a: SutdaCard,
+  b: SutdaCard,
 ): { cat: HandCategory; name: string } {
-  const lo = Math.min(a.month, b.month);
-  const hi = Math.max(a.month, b.month);
+  const lo = Math.min(a.num, b.num);
+  const hi = Math.max(a.num, b.num);
 
-  // 광땡(둘 다 광)
-  if (a.kind === "gwang" && b.kind === "gwang") {
-    if (lo === 3 && hi === 8) return { cat: { t: "g38" }, name: "38광땡" };
-    return {
-      cat: { t: "gwang" },
-      name: lo === 1 && hi === 3 ? "13광땡" : "18광땡",
-    };
+  // 광땡(둘 다 광 ♠A·3·8)
+  if (isGwang(a) && isGwang(b)) {
+    if (lo === 3 && hi === 8) return { cat: { t: "g38" }, name: "삼팔광땡" };
+    if (lo === 1 && hi === 8) return { cat: { t: "gwang" }, name: "일팔광땡" };
+    return { cat: { t: "gwang" }, name: "일삼광땡" }; // {1,3}
   }
-  // 땡(같은 월)
-  if (a.month === b.month) {
-    const v = a.month;
+  // 땡(같은 숫자)
+  if (a.num === b.num) {
+    const v = a.num;
     return { cat: { t: "ddaeng", v }, name: v === 10 ? "장땡" : `${v}땡` };
   }
-  // 특수패(패 종류까지 일치)
-  if (isPair(a, b, 3, "gwang", 7, "yeol")) {
-    return { cat: { t: "ddangjabi" }, name: "땡잡이" };
-  }
-  if (isPair(a, b, 4, "yeol", 7, "yeol")) {
-    return { cat: { t: "amhaeng" }, name: "암행어사" };
-  }
-  if (isPair(a, b, 4, "yeol", 9, "yeol")) {
-    return { cat: { t: "menggusa" }, name: "멍텅구리구사" };
+  // 특수패(♠끼리)
+  if (a.suit === "spade" && b.suit === "spade") {
+    if ((lo === 3 && hi === 7)) {
+      return { cat: { t: "ddangjabi" }, name: "37땡잡이" };
+    }
+    if (lo === 4 && hi === 7) {
+      return { cat: { t: "amhaeng" }, name: "47암행어사" };
+    }
+    if (lo === 4 && hi === 9) {
+      return { cat: { t: "menggusa" }, name: "멍텅구리구사" };
+    }
   }
   // 구사(4·9 — 멍구사 아닌 나머지)
   if (lo === 4 && hi === 9) return { cat: { t: "gusa" }, name: "구사" };
-  // 특수 조합(월)
+  // 특수 조합(숫자, 무늬 무관)
   const sp = SPECIALS[`${lo},${hi}`];
   if (sp) return { cat: { t: "special", r: sp[0], name: sp[1] }, name: sp[1] };
   // 끗수
-  const kkut = (a.month + b.month) % 10;
+  const kkut = (a.num + b.num) % 10;
   const name = kkut === 9 ? "갑오" : kkut === 0 ? "망통" : `${kkut}끗`;
   return { cat: { t: "kkut", v: kkut }, name };
 }
@@ -119,7 +106,7 @@ export function soloRank(cat: HandCategory): number {
 }
 
 // 3장 중 가장 높은(단순 서열) 2장 — 실시간 미리보기/자동 선택용.
-export function bestTwoOf(cards: HwatuCard[]): {
+export function bestTwoOf(cards: SutdaCard[]): {
   pick: [number, number];
   name: string;
 } {
