@@ -1,33 +1,26 @@
 "use client";
 
-// 섯다(2~6인) — 정통 베팅(삥/따당/하프/콜/다이), 38광땡 최고.
-// 패는 서버가 본인에게만 개인화 스냅샷으로 보낸다(쇼다운 때 안 죽은 패만 공개).
-// 골드/누적 손익은 DB 기준이며, 방장이 멤버에게 충전할 수 있다(빚 없음).
+// 섯다(세장, 2~6인) — 2장 받고 베팅 → 1장 더 받고 베팅 → 3장 중 2장 선택 → 오픈.
+// 정통 베팅(삥/따당/하프/콜/다이), 특수패·재경기, 38광땡 최고.
+// 패는 서버가 본인에게만 보낸다. 골드/손익은 DB 기준, 방장이 충전 가능(빚 없음).
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { LobbyCard, type LobbyMember } from "./LobbyCard";
 import { notifyTab } from "@/lib/tab-alert";
 import { useGameStream } from "@/lib/use-game-stream";
+import {
+  bestTwoOf,
+  evaluate2,
+  type HandCategory,
+  type HwatuCard,
+} from "@/lib/sutda-rules";
 
 const ANTE = 100;
 
-// 화투 월별 색 — 1~10월이 서로 확실히 구별되도록 무지개 계열로 배치
-// (index 0은 미사용, 3·8월은 광이 있는 월)
 const MONTH_COLOR = [
-  "#202124", // 0 (미사용)
-  "#d50000", // 1 빨강
-  "#e8710a", // 2 주황
-  "#f9a825", // 3 황금(광)
-  "#2e7d32", // 4 초록
-  "#00897b", // 5 청록
-  "#1a73e8", // 6 파랑
-  "#3949ab", // 7 남색
-  "#8e24aa", // 8 보라(광)
-  "#c2185b", // 9 자홍
-  "#5d4037", // 10 갈색
+  "#202124", "#d50000", "#e8710a", "#f9a825", "#2e7d32", "#00897b",
+  "#1a73e8", "#3949ab", "#8e24aa", "#c2185b", "#5d4037",
 ];
-
-type Card = { id: string; month: number; gwang: boolean };
 
 type PlayerView = {
   memberId: string;
@@ -35,7 +28,9 @@ type PlayerView = {
   gold: number;
   bet: number;
   folded: boolean;
-  cards: Card[] | null;
+  selected: boolean;
+  cardCount: number;
+  cards: HwatuCard[] | null;
   hand: string | null;
 };
 
@@ -51,12 +46,14 @@ type Result = {
 type Snapshot = {
   type: "snapshot";
   matchId: string;
-  status: "joining" | "betting" | "ended";
+  status: "joining" | "bet1" | "bet2" | "select" | "ended";
+  round: 1 | 2;
   players: PlayerView[];
   turnMemberId: string | null;
   pot: number;
   currentBet: number;
-  myCards: Card[];
+  myCards: HwatuCard[];
+  myChosen: [number, number] | null;
   results?: Result[];
 };
 
@@ -66,6 +63,7 @@ type ServerEvent =
   | { type: "match_started"; matchId: string }
   | { type: "match_cancelled" }
   | { type: "match_ended"; results: Result[] }
+  | { type: "replay" }
   | { type: "lobby"; members: LobbyMember[] }
   | { type: "group_destroyed" };
 
@@ -77,7 +75,7 @@ type WalletMember = {
 };
 type Wallet = { gold: number; netProfit: number; members: WalletMember[] };
 
-type Phase = "lobby" | "joining" | "betting" | "result";
+type Phase = "lobby" | "joining" | "betting" | "selecting" | "result";
 
 export function SutdaGame({
   myMemberId,
@@ -91,10 +89,14 @@ export function SutdaGame({
   onAway: () => void;
 }) {
   const [phase, setPhase] = useState<Phase>("lobby");
+  const [status, setStatus] = useState<Snapshot["status"]>("joining");
+  const [round, setRound] = useState<1 | 2>(1);
   const [players, setPlayers] = useState<PlayerView[]>([]);
   const [turnMemberId, setTurnMemberId] = useState<string | null>(null);
   const [pot, setPot] = useState(0);
   const [currentBet, setCurrentBet] = useState(ANTE);
+  const [myCards, setMyCards] = useState<HwatuCard[]>([]);
+  const [myChosen, setMyChosen] = useState<[number, number] | null>(null);
   const [results, setResults] = useState<Result[] | null>(null);
   const [lobbyMembers, setLobbyMembers] = useState<LobbyMember[]>([]);
   const [wallet, setWallet] = useState<Wallet | null>(null);
@@ -102,6 +104,8 @@ export function SutdaGame({
   const [notice, setNotice] = useState<string | null>(null);
   const [actError, setActError] = useState<string | null>(null);
   const [showGuide, setShowGuide] = useState(true);
+  // 선택 단계 로컬 선택(확정 전)
+  const [pick, setPick] = useState<number[]>([]);
 
   const amAwayRef = useRef(false);
   const amAway =
@@ -128,22 +132,30 @@ export function SutdaGame({
     (ev: ServerEvent) => {
       switch (ev.type) {
         case "snapshot": {
+          setStatus(ev.status);
+          setRound(ev.round);
           setPlayers(ev.players);
           setTurnMemberId(ev.turnMemberId);
           setPot(ev.pot);
           setCurrentBet(ev.currentBet);
+          setMyCards(ev.myCards);
+          setMyChosen(ev.myChosen);
           setActError(null);
           if (ev.status === "joining") {
             setResults(null);
             setPhase("joining");
-          } else if (ev.status === "betting") {
+          } else if (ev.status === "bet1" || ev.status === "bet2") {
             setResults(null);
+            setPick([]);
             setPhase("betting");
+          } else if (ev.status === "select") {
+            setResults(null);
+            setPhase("selecting");
           } else {
             const res = ev.results ?? null;
             setResults(res);
             setPhase(res ? "result" : "lobby");
-            if (res) refreshWallet(); // 정산 반영
+            if (res) refreshWallet();
           }
           break;
         }
@@ -161,6 +173,11 @@ export function SutdaGame({
         case "match_cancelled": {
           setNotice("인원이 모이지 않아 판이 취소됐어요. (2명 이상 필요)");
           setPhase("lobby");
+          break;
+        }
+        case "replay": {
+          setNotice("구사/멍구사 — 재경기! 카드를 다시 돌려요.");
+          setPick([]);
           break;
         }
         case "match_ended": {
@@ -183,13 +200,28 @@ export function SutdaGame({
   useGameStream<ServerEvent>("/api/sutda/stream", applyEvent);
 
   const me = players.find((p) => p.memberId === myMemberId) ?? null;
+  const amPlaying = me != null && !me.folded;
   const isMyTurn =
-    phase === "betting" && me != null && !me.folded && turnMemberId === myMemberId;
+    (status === "bet1" || status === "bet2") &&
+    amPlaying &&
+    turnMemberId === myMemberId;
 
-  // 내 차례가 되면 탭이 백그라운드일 때 알림
   useEffect(() => {
     if (isMyTurn) notifyTab();
   }, [isMyTurn]);
+
+  // 내 패 미리보기 족보 — 선택 단계는 고른 2장, 베팅 단계는 최고 2장
+  const myHand = useMemo(() => {
+    if (myCards.length < 2) return null;
+    if (phase === "selecting" && pick.length === 2) {
+      return evaluate2(myCards[pick[0]], myCards[pick[1]]);
+    }
+    if (myChosen) {
+      return evaluate2(myCards[myChosen[0]], myCards[myChosen[1]]);
+    }
+    const best = bestTwoOf(myCards);
+    return evaluate2(myCards[best.pick[0]], myCards[best.pick[1]]);
+  }, [myCards, phase, pick, myChosen]);
 
   const callDiff = me ? Math.max(0, currentBet - me.bet) : 0;
   const myGold = me?.gold ?? wallet?.gold ?? 0;
@@ -215,6 +247,24 @@ export function SutdaGame({
   const doFold = useCallback(() => {
     void fetch("/api/sutda/fold", { method: "POST" }).catch(() => undefined);
   }, []);
+
+  const togglePick = useCallback((idx: number) => {
+    setPick((prev) => {
+      if (prev.includes(idx)) return prev.filter((i) => i !== idx);
+      if (prev.length >= 2) return [prev[1], idx]; // 오래된 것 밀어내기
+      return [...prev, idx];
+    });
+  }, []);
+
+  const confirmSelect = useCallback(async () => {
+    if (pick.length !== 2) return;
+    const sorted = [...pick].sort((a, b) => a - b);
+    await fetch("/api/sutda/select", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ cards: [sorted[0], sorted[1]] }),
+    }).catch(() => undefined);
+  }, [pick]);
 
   const startMatch = useCallback(async () => {
     setStartError(null);
@@ -252,25 +302,30 @@ export function SutdaGame({
     [refreshWallet],
   );
 
+  const inGame =
+    phase === "betting" || phase === "joining" || phase === "selecting";
+
   return (
     <div className="flex flex-col gap-3 w-full pt-4 pb-8">
-      <WalletBar
-        gold={myGold}
-        netProfit={wallet?.netProfit ?? 0}
-        inGame={phase === "betting" || phase === "joining"}
+      <WalletBar gold={myGold} netProfit={wallet?.netProfit ?? 0} inGame={inGame} />
+
+      <HandGuide
+        open={showGuide}
+        onToggle={() => setShowGuide((v) => !v)}
+        myCat={inGame || phase === "result" ? (myHand?.cat ?? null) : null}
       />
 
-      <HandGuide open={showGuide} onToggle={() => setShowGuide((v) => !v)} />
-
-      {(phase === "betting" || phase === "joining" || phase === "result") && (
-        <PotBar
-          pot={pot}
-          currentBet={currentBet}
-          joining={phase === "joining"}
-        />
+      {(phase === "betting" || phase === "selecting" || phase === "result") && (
+        <PotBar pot={pot} currentBet={currentBet} round={round} status={status} />
       )}
 
-      {(phase === "betting" || phase === "result") && (
+      {phase === "joining" && (
+        <div className="text-center text-[13px] text-[var(--sheet-muted)]">
+          참가자를 모으는 중... (2~6명, 잠시 후 패가 분배돼요)
+        </div>
+      )}
+
+      {(phase === "betting" || phase === "selecting" || phase === "result") && (
         <PlayersTable
           players={players}
           turnMemberId={turnMemberId}
@@ -278,7 +333,20 @@ export function SutdaGame({
         />
       )}
 
-      {phase === "betting" && me && !me.folded && (
+      {/* 내 패 */}
+      {(phase === "betting" || phase === "selecting") && amPlaying && (
+        <MyHand
+          cards={myCards}
+          phase={phase}
+          pick={pick}
+          chosen={myChosen}
+          handName={myHand?.name ?? null}
+          onToggle={togglePick}
+        />
+      )}
+
+      {/* 베팅 컨트롤 */}
+      {phase === "betting" && amPlaying && (
         <>
           <BettingControls
             isMyTurn={isMyTurn}
@@ -286,6 +354,7 @@ export function SutdaGame({
             callDiff={callDiff}
             myGold={myGold}
             pot={pot}
+            roundBase={status === "bet1" ? ANTE : 0}
             waitingFor={
               players.find((p) => p.memberId === turnMemberId)?.nickname ?? "?"
             }
@@ -300,16 +369,35 @@ export function SutdaGame({
         </>
       )}
 
-      {phase === "betting" && (!me || me.folded) && (
-        <div className="text-center text-[13px] text-[var(--sheet-muted)]">
-          {me?.folded ? "다이했어요 — " : ""}관전 중이에요. 판이 끝나면 다음 판에
-          참여할 수 있어요.
+      {/* 선택 컨트롤 */}
+      {phase === "selecting" && amPlaying && (
+        <div className="flex items-center justify-center gap-2 flex-wrap">
+          {myChosen ? (
+            <span className="text-[13px] text-[var(--sheet-muted)]">
+              선택 완료 — 다른 사람을 기다리는 중...
+            </span>
+          ) : (
+            <>
+              <span className="text-[13px] text-[var(--sheet-muted)]">
+                쓸 2장을 고르세요 (번복 불가)
+              </span>
+              <button
+                type="button"
+                onClick={confirmSelect}
+                disabled={pick.length !== 2}
+                className="px-4 py-1.5 rounded bg-[var(--sheet-active)] text-white text-[13px] font-medium hover:brightness-95 disabled:opacity-40"
+              >
+                선택 확정
+              </button>
+            </>
+          )}
         </div>
       )}
 
-      {phase === "joining" && (
+      {(phase === "betting" || phase === "selecting") && !amPlaying && (
         <div className="text-center text-[13px] text-[var(--sheet-muted)]">
-          참가자를 모으는 중... (2~6명, 잠시 후 패가 분배돼요)
+          {me?.folded ? "다이했어요 — " : ""}관전 중이에요. 판이 끝나면 다음 판에
+          참여할 수 있어요.
         </div>
       )}
 
@@ -327,11 +415,11 @@ export function SutdaGame({
 
       {(phase === "lobby" || phase === "result") && (
         <LobbyCard
-          title={phase === "result" ? "다시 하기" : "섯다"}
+          title={phase === "result" ? "다시 하기" : "섯다(세장)"}
           description={
             phase === "result"
               ? "다음 판을 준비하세요."
-              : "화투 2장으로 족보를 만들어 겨루는 섯다예요.\n앤티 100골드, 38광땡이 최고패. 방장이 시작하면 2~6명이 함께해요."
+              : "2장 받고 베팅 → 1장 더 받고 베팅 → 3장 중 2장을 골라 승부!\n앤티 100골드, 38광땡이 최고. 방장이 시작하면 2~6명이 함께해요."
           }
           notice={notice}
           members={lobbyMembers}
@@ -370,7 +458,7 @@ function translateActError(code: string | undefined): string {
     case "insufficient":
       return "골드가 부족해요. 콜할 수 없으면 다이하세요.";
     case "cannot_bbing":
-      return "삥은 첫 베팅에서만 할 수 있어요.";
+      return "삥은 이번 라운드 첫 베팅에서만 할 수 있어요.";
     case "not_your_turn":
       return "내 차례가 아니에요.";
     case "rate_limited":
@@ -384,24 +472,44 @@ function fmt(n: number): string {
   return n.toLocaleString("ko-KR");
 }
 
-// 족보 안내(접기 가능). 높은 순으로 한눈에 보여준다.
-const HAND_GUIDE_ROWS: { tag: string; desc: string }[] = [
-  { tag: "최고", desc: "38광땡 (3·8월 둘 다 광)" },
-  { tag: "땡", desc: "같은 월 — 장땡(10) > 9 > … > 1" },
+// 카테고리 → 족보표 행 키
+function catRow(cat: HandCategory | null): string | null {
+  if (!cat) return null;
+  if (cat.t === "g38") return "g38";
+  if (cat.t === "gwang") return "gwang";
+  if (cat.t === "ddaeng") return "ddaeng";
+  if (cat.t === "amhaeng") return "amhaeng";
+  if (cat.t === "ddangjabi") return "ddangjabi";
+  if (cat.t === "special") return "special";
+  if (cat.t === "gusa" || cat.t === "menggusa") return "gusa";
+  return "kkut";
+}
+
+const GUIDE_ROWS: { key: string; label: string; desc: string }[] = [
+  { key: "g38", label: "38광땡", desc: "3·8 둘 다 광 (최고)" },
+  { key: "gwang", label: "광땡", desc: "13광땡 · 18광땡" },
+  { key: "ddaeng", label: "땡", desc: "장땡(10) > 9 > … > 1" },
+  { key: "amhaeng", label: "암행어사", desc: "4열+7열 — 13·18광땡 잡음" },
+  { key: "ddangjabi", label: "땡잡이", desc: "3광+7열 — 1~9땡 잡음" },
   {
-    tag: "특수",
-    desc: "알리(1·2) · 독사(1·4) · 구삥(1·9) · 장삥(1·10) · 장사(4·10) · 세륙(4·6)",
+    key: "special",
+    label: "특수",
+    desc: "알리·독사·구삥·장삥·장사·세륙",
   },
-  { tag: "끗수", desc: "두 월 합의 끝자리 — 갑오(9끗) > … > 1끗 > 망통(0끗)" },
+  { key: "gusa", label: "구사/멍구사", desc: "4·9 — 재경기" },
+  { key: "kkut", label: "끗", desc: "갑오(9끗) > … > 망통(0끗)" },
 ];
 
 function HandGuide({
   open,
   onToggle,
+  myCat,
 }: {
   open: boolean;
   onToggle: () => void;
+  myCat: HandCategory | null;
 }) {
+  const mine = catRow(myCat);
   return (
     <div className="border border-[var(--sheet-cell-border)] bg-white">
       <button
@@ -409,19 +517,36 @@ function HandGuide({
         onClick={onToggle}
         className="flex items-center justify-between w-full px-3 py-1.5 text-[12px] font-medium text-[var(--sheet-fg)] hover:bg-black/5"
       >
-        <span>족보 (높은 순)</span>
+        <span>족보 (높은 순){mine ? " · 내 패 표시" : ""}</span>
         <span className="text-[var(--sheet-muted)]">{open ? "▲" : "▼"}</span>
       </button>
       {open && (
-        <div className="flex flex-col gap-1 px-3 pb-2">
-          {HAND_GUIDE_ROWS.map((r) => (
-            <div key={r.tag} className="flex items-start gap-2 text-[12px]">
-              <span className="shrink-0 w-9 text-[var(--sheet-active)] font-medium">
-                {r.tag}
-              </span>
-              <span className="text-[var(--sheet-muted)]">{r.desc}</span>
-            </div>
-          ))}
+        <div className="flex flex-col px-2 pb-2">
+          {GUIDE_ROWS.map((r) => {
+            const hit = r.key === mine;
+            return (
+              <div
+                key={r.key}
+                className={
+                  "flex items-start gap-2 text-[12px] px-1.5 py-0.5 rounded " +
+                  (hit ? "bg-[var(--sheet-active-bg)] font-medium" : "")
+                }
+              >
+                <span
+                  className={
+                    "shrink-0 w-16 " +
+                    (hit
+                      ? "text-[var(--sheet-active)]"
+                      : "text-[var(--sheet-fg)]")
+                  }
+                >
+                  {hit ? "▶ " : ""}
+                  {r.label}
+                </span>
+                <span className="text-[var(--sheet-muted)]">{r.desc}</span>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
@@ -463,35 +588,50 @@ function WalletBar({
 function PotBar({
   pot,
   currentBet,
-  joining,
+  round,
+  status,
 }: {
   pot: number;
   currentBet: number;
-  joining: boolean;
+  round: 1 | 2;
+  status: Snapshot["status"];
 }) {
   return (
     <div className="flex items-center justify-center gap-4 px-3 py-2 border border-[var(--sheet-cell-border)] bg-white text-[13px]">
-      {joining ? (
-        <span className="text-[var(--sheet-muted)]">모집 중...</span>
+      <span>
+        판돈{" "}
+        <span className="font-medium tabular-nums text-[var(--sheet-active)]">
+          {fmt(pot)}
+        </span>
+      </span>
+      <span className="text-[var(--sheet-muted)]">·</span>
+      {status === "select" ? (
+        <span className="text-[var(--sheet-muted)]">2장 선택 중</span>
+      ) : status === "ended" ? (
+        <span className="text-[var(--sheet-muted)]">오픈</span>
       ) : (
-        <>
-          <span>
-            판돈{" "}
-            <span className="font-medium tabular-nums text-[var(--sheet-active)]">
-              {fmt(pot)}
-            </span>
-          </span>
-          <span className="text-[var(--sheet-muted)]">·</span>
-          <span className="text-[var(--sheet-muted)]">
-            콜 기준 <span className="tabular-nums">{fmt(currentBet)}</span>
-          </span>
-        </>
+        <span className="text-[var(--sheet-muted)]">
+          {round}라운드 · 콜 기준{" "}
+          <span className="tabular-nums">{fmt(currentBet)}</span>
+        </span>
       )}
     </div>
   );
 }
 
-function HwatuCard({ card, hidden }: { card?: Card; hidden?: boolean }) {
+function HwatuCardView({
+  card,
+  hidden,
+  selected,
+  selectable,
+  onClick,
+}: {
+  card?: HwatuCard;
+  hidden?: boolean;
+  selected?: boolean;
+  selectable?: boolean;
+  onClick?: () => void;
+}) {
   if (hidden || !card) {
     return (
       <div className="w-9 h-12 rounded border border-[var(--sheet-cell-border)] bg-[#dadce0] grid place-items-center text-[10px] text-[#5f6368] select-none">
@@ -500,15 +640,82 @@ function HwatuCard({ card, hidden }: { card?: Card; hidden?: boolean }) {
     );
   }
   const color = MONTH_COLOR[card.month] ?? "#202124";
+  const kindLabel =
+    card.kind === "gwang" ? "광" : card.kind === "yeol" ? "열" : "띠";
   return (
-    <div
-      className="w-9 h-12 rounded border-2 bg-white grid place-items-center shadow-sm select-none relative"
+    <button
+      type="button"
+      disabled={!selectable}
+      onClick={onClick}
+      className={
+        "w-9 h-12 rounded border-2 bg-white grid place-items-center shadow-sm select-none relative " +
+        (selectable ? "cursor-pointer " : "cursor-default ") +
+        (selected ? "ring-2 ring-[var(--sheet-active)] -translate-y-1 " : "")
+      }
       style={{ color, borderColor: color }}
     >
       <span className="text-[18px] font-bold leading-none">{card.month}</span>
-      {card.gwang && (
+      <span className="absolute bottom-0.5 right-0.5 text-[8px] text-[var(--sheet-muted)]">
+        {kindLabel}
+      </span>
+      {card.kind === "gwang" && (
         <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-[#e8710a] text-white text-[9px] font-bold grid place-items-center">
           光
+        </span>
+      )}
+    </button>
+  );
+}
+
+function MyHand({
+  cards,
+  phase,
+  pick,
+  chosen,
+  handName,
+  onToggle,
+}: {
+  cards: HwatuCard[];
+  phase: Phase;
+  pick: number[];
+  chosen: [number, number] | null;
+  handName: string | null;
+  onToggle: (idx: number) => void;
+}) {
+  const selecting = phase === "selecting" && !chosen;
+  return (
+    <div className="flex flex-col gap-1.5 p-3 border border-[var(--sheet-cell-border)] bg-[var(--sheet-header-bg)]">
+      <div className="flex items-center justify-between">
+        <span className="text-[11px] text-[var(--sheet-muted)] uppercase tracking-wide">
+          내 패
+        </span>
+        {handName && (
+          <span className="text-[13px] font-medium text-[var(--sheet-active)]">
+            {selecting && pick.length < 2 ? "" : handName}
+          </span>
+        )}
+      </div>
+      <div className="flex gap-2">
+        {cards.map((c, i) => {
+          const isChosen = chosen
+            ? i === chosen[0] || i === chosen[1]
+            : pick.includes(i);
+          return (
+            <HwatuCardView
+              key={c.id}
+              card={c}
+              selected={isChosen}
+              selectable={selecting}
+              onClick={selecting ? () => onToggle(i) : undefined}
+            />
+          );
+        })}
+      </div>
+      {selecting && (
+        <span className="text-[11px] text-[var(--sheet-muted)]">
+          {pick.length < 2
+            ? "카드를 눌러 2장을 고르세요"
+            : `선택: ${handName ?? "-"}`}
         </span>
       )}
     </div>
@@ -545,6 +752,9 @@ function PlayersTable({
                 {p.nickname}
                 {isMe ? " (나)" : ""}
               </span>
+              {p.selected && !p.folded && (
+                <span className="text-[10px] text-[var(--sheet-green)]">✓</span>
+              )}
               {isTurn && (
                 <span className="w-1.5 h-1.5 rounded-full bg-[var(--sheet-active)]" />
               )}
@@ -555,12 +765,11 @@ function PlayersTable({
                   다이
                 </span>
               ) : p.cards ? (
-                p.cards.map((c) => <HwatuCard key={c.id} card={c} />)
+                p.cards.map((c) => <HwatuCardView key={c.id} card={c} />)
               ) : (
-                <>
-                  <HwatuCard hidden />
-                  <HwatuCard hidden />
-                </>
+                Array.from({ length: Math.max(1, p.cardCount) }).map((_, i) => (
+                  <HwatuCardView key={i} hidden />
+                ))
               )}
             </div>
             <div className="flex items-center justify-between text-[11px] text-[var(--sheet-muted)] tabular-nums">
@@ -585,6 +794,7 @@ function BettingControls({
   callDiff,
   myGold,
   pot,
+  roundBase,
   waitingFor,
   onAct,
   onFold,
@@ -594,6 +804,7 @@ function BettingControls({
   callDiff: number;
   myGold: number;
   pot: number;
+  roundBase: number;
   waitingFor: string;
   onAct: (a: "call" | "bbing" | "ttadang" | "half") => void;
   onFold: () => void;
@@ -606,9 +817,8 @@ function BettingControls({
     );
   }
   const canCall = callDiff <= myGold;
-  const canBbing = currentBet === ANTE && currentBet + ANTE - callDiff <= myGold;
-  // 따당: currentBet*2 까지, 하프: currentBet + max(pot/2, ANTE)
-  const ttadangNeed = currentBet * 2 - (currentBet - callDiff);
+  const canBbing = currentBet === roundBase && currentBet + ANTE - callDiff <= myGold;
+  const ttadangNeed = Math.max(currentBet * 2, ANTE) - (currentBet - callDiff);
   const halfRaise = Math.max(Math.floor(pot / 2), ANTE);
   const halfNeed = currentBet + halfRaise - (currentBet - callDiff);
 
@@ -646,7 +856,7 @@ function BettingControls({
         disabled={!canCall}
         primary
       />
-      {currentBet === ANTE && (
+      {currentBet === roundBase && (
         <Btn
           label={`삥 (${fmt(ANTE)})`}
           onClick={() => onAct("bbing")}
@@ -737,7 +947,6 @@ function GrantPanel({
 }) {
   const [target, setTarget] = useState("");
   const [amount, setAmount] = useState("10000");
-
   const effectiveTarget = target || members[0]?.memberId || "";
 
   return (

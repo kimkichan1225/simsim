@@ -1,22 +1,71 @@
-// 섯다(2~6인 턴제) — 인메모리 상태/이벤트 허브
-// 화투 1~10월 각 2장(20장), 각자 2장. 정통 베팅(앤티/삥/따당/하프/콜/다이).
-// 38광땡만 최고패. 골드는 시작 시 주입받아 인메모리로 굴리고, 판이 끝나면
-// onEnded로 각자 최종 골드·손익을 route에 넘겨 DB에 반영한다(올인/사이드팟 없음).
+// 섯다(세장, 2~6인) — 인메모리 상태/이벤트 허브
+// 20장(1~10월 각 2장, 피 제외), 광은 1·3·8월.
+// 흐름: 2장 받고 베팅 → 1장 더 받고 베팅 → 3장 중 2장 선택(번복 불가) → 오픈.
+// 특수패/족보 평가는 sutda-rules.ts(서버·클라 공유)에 있고, 여기선 진행/베팅/정산만 담당한다.
+// 골드는 시작 시 주입받아 인메모리로 굴리고, 판이 끝나면 onEnded로 DB에 반영(올인·사이드팟 없음).
 
 import { randomBytes } from "node:crypto";
 import { GameChannel, type SseSubscriber } from "./game-channel";
 import { GroupLobby, type LobbyMemberView } from "./lobby";
+import {
+  bestTwoOf,
+  DECK_SPEC,
+  evaluate2,
+  type HandCategory,
+  type HwatuCard,
+} from "./sutda-rules";
+
+export type { CardKind, HwatuCard } from "./sutda-rules";
 
 export const SUTDA_MAX_PLAYERS = 6;
 const JOIN_WINDOW_MS = 8_000;
-export const SUTDA_ANTE = 100; // 기본 참가비
-const MIN_BET = 100; // 삥 최소 베팅
+export const SUTDA_ANTE = 100;
+const MIN_BET = 100;
 
-export type SutdaStatus = "joining" | "betting" | "ended";
-export type SutdaAction = "die" | "call" | "bbing" | "ttadang" | "half";
+export type SutdaStatus = "joining" | "bet1" | "bet2" | "select" | "ended";
+export type SutdaAction = "call" | "bbing" | "ttadang" | "half";
 
-export type HwatuCard = { id: string; month: number; gwang: boolean };
-export type HandRank = { score: number; name: string };
+// 쇼다운 서열 — 상대(본인 제외 안 죽은 사람들)의 카테고리에 따라 특수패가 발동한다.
+function showdownRank(cat: HandCategory, others: HandCategory[]): number {
+  switch (cat.t) {
+    case "g38":
+      return 1000;
+    case "gwang":
+      return 900;
+    case "ddaeng":
+      return 800 + cat.v;
+    case "amhaeng": {
+      // 13·18광땡이 있을 때만 발동(38광땡은 못 잡음). 없으면 1끗.
+      const has13or18 = others.some((c) => c.t === "gwang");
+      return has13or18 ? 950 : 1;
+    }
+    case "ddangjabi": {
+      // 1~9땡이 있을 때 발동(장땡은 못 잡음). 없으면 망통.
+      const has1to9 = others.some((c) => c.t === "ddaeng" && c.v < 10);
+      return has1to9 ? 809.5 : 0;
+    }
+    case "special":
+      return cat.r;
+    case "menggusa":
+    case "gusa":
+      return 3; // 재경기 불발 시 3끗 취급
+    case "kkut":
+      return cat.v;
+  }
+}
+
+// 재경기 여부 — 구사/멍구사 보유자가 있고 판이 약할 때.
+function isReplay(cats: HandCategory[]): boolean {
+  const hasGwang = cats.some((c) => c.t === "g38" || c.t === "gwang");
+  const hasDdaeng = cats.some((c) => c.t === "ddaeng");
+  const hasMeng = cats.some((c) => c.t === "menggusa");
+  const hasGusa = cats.some((c) => c.t === "gusa");
+  if (hasMeng && !hasGwang) return true; // 최고가 장땡 이하
+  if (hasGusa && !hasDdaeng && !hasGwang) return true; // 알리 이하(땡 없음)
+  return false;
+}
+
+// ---------- 타입(스냅샷/이벤트) ----------
 
 export type SutdaPlayerView = {
   memberId: string;
@@ -24,16 +73,18 @@ export type SutdaPlayerView = {
   gold: number;
   bet: number;
   folded: boolean;
-  cards: HwatuCard[] | null; // 공개 시에만(본인이거나 쇼다운에서 안 죽은 패)
-  hand: string | null; // 쇼다운 공개 시 족보 이름
+  selected: boolean;
+  cardCount: number; // 받은 패 수(상대 패 뒷면 개수)
+  cards: HwatuCard[] | null; // 공개 시(쇼다운에서 안 죽은 패의 선택 2장)
+  hand: string | null;
 };
 
 export type SutdaResult = {
   memberId: string;
   nickname: string;
   handName: string;
-  delta: number; // 이번 판 손익
-  finalGold: number; // route가 DB에 반영
+  delta: number;
+  finalGold: number;
   winner: boolean;
 };
 
@@ -41,11 +92,13 @@ export type SutdaSnapshot = {
   type: "snapshot";
   matchId: string;
   status: SutdaStatus;
-  players: SutdaPlayerView[]; // 배열 순서 = 자리 순서
+  round: 1 | 2;
+  players: SutdaPlayerView[];
   turnMemberId: string | null;
   pot: number;
-  currentBet: number; // 콜 기준(누적)
-  myCards: HwatuCard[]; // 수신자 전용(관전자는 빈 배열)
+  currentBet: number;
+  myCards: HwatuCard[]; // 본인 패(2 또는 3장)
+  myChosen: [number, number] | null;
   results?: SutdaResult[];
 };
 
@@ -53,8 +106,9 @@ export type SutdaEvent =
   | SutdaSnapshot
   | { type: "no_match" }
   | { type: "match_started"; matchId: string }
-  | { type: "match_cancelled" } // 인원 미달 취소
+  | { type: "match_cancelled" }
   | { type: "match_ended"; results: SutdaResult[] }
+  | { type: "replay" }
   | { type: "lobby"; members: LobbyMemberView[] }
   | { type: "group_destroyed" };
 
@@ -62,10 +116,12 @@ type SutdaPlayer = {
   memberId: string;
   nickname: string;
   gold: number;
-  startGold: number; // 이번 판 시작 시 골드(손익 계산 기준)
+  startGold: number;
   cards: HwatuCard[];
-  hand: HandRank | null;
-  bet: number; // 이번 판 낸 누적
+  chosen: [number, number] | null;
+  hand: { cat: HandCategory; name: string } | null;
+  bet: number;
+  roundBet: number;
   folded: boolean;
 };
 
@@ -73,12 +129,13 @@ type SutdaMatch = {
   matchId: string;
   groupId: string;
   status: SutdaStatus;
-  players: Map<string, SutdaPlayer>; // 삽입 순서 = 자리 순서
+  players: Map<string, SutdaPlayer>;
   order: string[];
   turnIdx: number;
   pot: number;
   currentBet: number;
-  actedCount: number; // 마지막 레이즈 이후 액션한 active(안 죽은) 수
+  roundBase: number; // 이번 라운드 시작 베팅액(삥 가능 판정용)
+  actedCount: number;
   results: SutdaResult[] | null;
   dealTimer: ReturnType<typeof setTimeout> | null;
   onEnded?: (results: SutdaResult[], groupId: string) => Promise<void> | void;
@@ -90,6 +147,15 @@ const lobby = new GroupLobby((groupId) => broadcastLobby(groupId));
 
 function newId(bytes: number): string {
   return randomBytes(bytes).toString("base64url");
+}
+
+function buildDeck(): HwatuCard[] {
+  const deck = DECK_SPEC.map(([m, k], i) => ({ id: `c${i}`, month: m, kind: k }));
+  for (let j = deck.length - 1; j > 0; j -= 1) {
+    const k = Math.floor(Math.random() * (j + 1));
+    [deck[j], deck[k]] = [deck[k], deck[j]];
+  }
+  return deck;
 }
 
 function broadcastToGroup(groupId: string, event: SutdaEvent): void {
@@ -117,99 +183,49 @@ export function isAloneInLobby(groupId: string, memberId: string): boolean {
   return lobby.isAlone(groupId, memberId);
 }
 
-// ---------- 카드/족보 ----------
-
-// 화투 1~10월 각 2장. 광은 3월·8월에 1장씩(38광땡 판정용).
-function buildDeck(): HwatuCard[] {
-  const deck: HwatuCard[] = [];
-  let i = 0;
-  for (let month = 1; month <= 10; month += 1) {
-    for (let copy = 0; copy < 2; copy += 1) {
-      const gwang = (month === 3 || month === 8) && copy === 0;
-      deck.push({ id: `c${i++}`, month, gwang });
-    }
-  }
-  for (let j = deck.length - 1; j > 0; j -= 1) {
-    const k = Math.floor(Math.random() * (j + 1));
-    [deck[j], deck[k]] = [deck[k], deck[j]];
-  }
-  return deck;
-}
-
-const SPECIAL: Record<string, [number, string]> = {
-  "1,2": [880, "알리"],
-  "1,4": [870, "독사"],
-  "1,9": [860, "구삥"],
-  "1,10": [850, "장삥"],
-  "4,10": [840, "장사"],
-  "4,6": [830, "세륙"],
-};
-
-// 두 장의 족보 — 점수 높을수록 강함.
-// 38광땡(1000) > 땡(901~910) > 특수패(830~880) > 끗수(0~9)
-export function evaluate(a: HwatuCard, b: HwatuCard): HandRank {
-  // 38광땡: 3월·8월이 둘 다 광
-  if (
-    a.gwang &&
-    b.gwang &&
-    ((a.month === 3 && b.month === 8) || (a.month === 8 && b.month === 3))
-  ) {
-    return { score: 1000, name: "38광땡" };
-  }
-  // 땡: 같은 월
-  if (a.month === b.month) {
-    const t = a.month;
-    return { score: 900 + t, name: t === 10 ? "장땡" : `${t}땡` };
-  }
-  // 특수패
-  const lo = Math.min(a.month, b.month);
-  const hi = Math.max(a.month, b.month);
-  const sp = SPECIAL[`${lo},${hi}`];
-  if (sp) return { score: sp[0], name: sp[1] };
-  // 끗수
-  const kkut = (a.month + b.month) % 10;
-  const name = kkut === 9 ? "갑오" : kkut === 0 ? "망통" : `${kkut}끗`;
-  return { score: kkut, name };
-}
-
 // ---------- 스냅샷 ----------
 
 function playerView(
   match: SutdaMatch,
   p: SutdaPlayer,
-  viewerId: string,
 ): SutdaPlayerView {
   const showdown = match.status === "ended" && !p.folded;
-  const reveal = showdown || p.memberId === viewerId;
+  const chosenCards =
+    p.chosen && p.cards.length >= 2
+      ? ([p.cards[p.chosen[0]], p.cards[p.chosen[1]]] as HwatuCard[])
+      : null;
   return {
     memberId: p.memberId,
     nickname: p.nickname,
     gold: p.gold,
     bet: p.bet,
     folded: p.folded,
-    cards: reveal && p.cards.length > 0 ? p.cards : null,
+    selected: p.chosen != null,
+    cardCount: p.cards.length,
+    cards: showdown ? chosenCards : null,
     hand: showdown ? (p.hand?.name ?? null) : null,
   };
 }
 
-export function snapshotFor(
-  match: SutdaMatch,
-  memberId: string,
-): SutdaSnapshot {
+export function snapshotFor(match: SutdaMatch, memberId: string): SutdaSnapshot {
   const me = match.players.get(memberId);
   return {
     type: "snapshot",
     matchId: match.matchId,
     status: match.status,
+    round: match.status === "bet2" ? 2 : 1,
     players: match.order
       .map((id) => match.players.get(id))
       .filter(Boolean)
-      .map((p) => playerView(match, p!, memberId)),
+      .map((p) => playerView(match, p!)),
     turnMemberId:
-      match.status === "betting" ? (match.order[match.turnIdx] ?? null) : null,
+      match.status === "bet1" || match.status === "bet2"
+        ? (match.order[match.turnIdx] ?? null)
+        : null,
     pot: match.pot,
     currentBet: match.currentBet,
     myCards: me ? me.cards : [],
+    myChosen: me?.chosen ?? null,
     results: match.results ?? undefined,
   };
 }
@@ -226,7 +242,6 @@ export function getMatch(groupId: string): SutdaMatch | null {
 
 // ---------- 진행 ----------
 
-// 방장이 판을 연다. 합류 창(8초) 동안 2~6명을 모은 뒤 카드를 돌린다.
 export function startMatch(input: {
   groupId: string;
   memberId: string;
@@ -246,6 +261,7 @@ export function startMatch(input: {
     turnIdx: 0,
     pot: 0,
     currentBet: 0,
+    roundBase: 0,
     actedCount: 0,
     results: null,
     dealTimer: null,
@@ -290,8 +306,10 @@ function addPlayer(
     gold,
     startGold: gold,
     cards: [],
+    chosen: null,
     hand: null,
     bet: 0,
+    roundBet: 0,
     folded: false,
   });
   match.order.push(memberId);
@@ -305,7 +323,7 @@ export function joinMatch(input: {
 }): { ok: boolean; reason?: "no_match" | "in_progress" | "full" | "broke" } {
   const match = matches.get(input.groupId);
   if (!match || match.status === "ended") return { ok: false, reason: "no_match" };
-  if (match.players.has(input.memberId)) return { ok: true }; // 재연결
+  if (match.players.has(input.memberId)) return { ok: true };
   if (match.status !== "joining") return { ok: false, reason: "in_progress" };
   if (match.players.size >= SUTDA_MAX_PLAYERS) return { ok: false, reason: "full" };
   if (input.gold < SUTDA_ANTE) return { ok: false, reason: "broke" };
@@ -319,43 +337,67 @@ export function joinMatch(input: {
   return { ok: true };
 }
 
-// 앤티를 낼 수 있는(골드 충분한) 참가자
 function eligiblePlayers(match: SutdaMatch): SutdaPlayer[] {
   return match.order
     .map((id) => match.players.get(id)!)
     .filter((p) => p.gold >= SUTDA_ANTE);
 }
 
+function activePlayers(match: SutdaMatch): SutdaPlayer[] {
+  return match.order
+    .map((id) => match.players.get(id)!)
+    .filter((p) => !p.folded);
+}
+
+// 첫 딜(2장) + 앤티.
 function deal(match: SutdaMatch): void {
-  // 앤티를 못 내는 사람은 이번 판에서 제외(죽은 것으로)
   const deck = buildDeck();
   for (const p of match.order.map((id) => match.players.get(id)!)) {
+    if (p.folded) continue;
     if (p.gold < SUTDA_ANTE) {
       p.folded = true;
       continue;
     }
     p.cards = [deck.pop()!, deck.pop()!];
-    p.hand = evaluate(p.cards[0], p.cards[1]);
+    p.chosen = null;
+    p.hand = null;
     p.gold -= SUTDA_ANTE;
-    p.bet = SUTDA_ANTE;
+    p.bet += SUTDA_ANTE;
     match.pot += SUTDA_ANTE;
   }
-  match.currentBet = SUTDA_ANTE;
+  startBettingRound(match, "bet1", SUTDA_ANTE);
+}
+
+// 3번째 카드 분배 + 2라운드 베팅
+function dealThird(match: SutdaMatch): void {
+  const used = new Set<string>();
+  for (const p of activePlayers(match)) for (const c of p.cards) used.add(c.id);
+  const deck = buildDeck().filter((c) => !used.has(c.id));
+  for (const p of activePlayers(match)) {
+    const card = deck.pop();
+    if (card) p.cards.push(card);
+  }
+  startBettingRound(match, "bet2", 0);
+}
+
+function startBettingRound(
+  match: SutdaMatch,
+  status: "bet1" | "bet2",
+  baseBet: number,
+): void {
+  match.status = status;
+  match.roundBase = baseBet;
+  match.currentBet = baseBet;
   match.actedCount = 0;
-  match.status = "betting";
-  // 선(첫 차례)은 안 죽은 사람 중 랜덤
+  for (const p of activePlayers(match)) {
+    p.roundBet = baseBet;
+  }
   const aliveIdx = match.order
     .map((id, i) => ({ i, p: match.players.get(id)! }))
     .filter((x) => !x.p.folded)
     .map((x) => x.i);
   match.turnIdx = aliveIdx[Math.floor(Math.random() * aliveIdx.length)] ?? 0;
   broadcastSnapshots(match);
-}
-
-function activePlayers(match: SutdaMatch): SutdaPlayer[] {
-  return match.order
-    .map((id) => match.players.get(id)!)
-    .filter((p) => !p.folded);
 }
 
 function advanceTurn(match: SutdaMatch): void {
@@ -377,14 +419,13 @@ export type ActResult =
         | "insufficient";
     };
 
-// 베팅 액션. 정통: 삥(첫 베팅)·따당(콜액 2배)·하프(판돈 절반)·콜·다이.
 export function act(input: {
   groupId: string;
   memberId: string;
   action: SutdaAction;
 }): ActResult {
   const match = matches.get(input.groupId);
-  if (!match || match.status !== "betting") {
+  if (!match || (match.status !== "bet1" && match.status !== "bet2")) {
     return { ok: false, reason: "not_running" };
   }
   const p = match.players.get(input.memberId);
@@ -393,16 +434,16 @@ export function act(input: {
     return { ok: false, reason: "not_your_turn" };
   }
 
-  // 새 누적 베팅 목표 계산(레이즈류)
-  const place = (newBet: number, raise: boolean): ActResult => {
-    const diff = newBet - p.bet;
+  const place = (newRoundBet: number, raise: boolean): ActResult => {
+    const diff = newRoundBet - p.roundBet;
     if (diff > p.gold) return { ok: false, reason: "insufficient" };
     p.gold -= diff;
-    p.bet = newBet;
+    p.roundBet = newRoundBet;
+    p.bet += diff;
     match.pot += diff;
     if (raise) {
-      match.currentBet = newBet;
-      match.actedCount = 1; // 레이즈한 본인만 매치 상태
+      match.currentBet = newRoundBet;
+      match.actedCount = 1;
     } else {
       match.actedCount += 1;
     }
@@ -411,22 +452,17 @@ export function act(input: {
 
   let res: ActResult;
   switch (input.action) {
-    case "die":
-      p.folded = true;
-      res = { ok: true };
-      break;
     case "call":
       res = place(match.currentBet, false);
       break;
     case "bbing":
-      // 삥 = 첫 베팅(아직 아무도 안 올림)일 때만
-      if (match.currentBet !== SUTDA_ANTE) {
+      if (match.currentBet !== match.roundBase) {
         return { ok: false, reason: "cannot_bbing" };
       }
       res = place(match.currentBet + MIN_BET, true);
       break;
     case "ttadang":
-      res = place(match.currentBet * 2, true);
+      res = place(Math.max(match.currentBet * 2, MIN_BET), true);
       break;
     case "half": {
       const raise = Math.max(Math.floor(match.pot / 2), MIN_BET);
@@ -438,14 +474,13 @@ export function act(input: {
   }
   if (!res.ok) return res;
 
-  // 종료 판정
   const active = activePlayers(match);
   if (active.length <= 1) {
     endMatch(match);
     return { ok: true };
   }
   if (match.actedCount >= active.length) {
-    endMatch(match); // 베팅 라운드 종료 → 쇼다운
+    endBettingRound(match);
     return { ok: true };
   }
   advanceTurn(match);
@@ -453,13 +488,12 @@ export function act(input: {
   return { ok: true };
 }
 
-// 기권(다이) — 차례와 무관하게 죽을 수 있다. 마지막 한 명이 남으면 그 사람 승.
 export function fold(input: {
   groupId: string;
   memberId: string;
 }): { ok: boolean; reason?: "not_running" | "not_player" } {
   const match = matches.get(input.groupId);
-  if (!match || match.status !== "betting") {
+  if (!match || (match.status !== "bet1" && match.status !== "bet2")) {
     return { ok: false, reason: "not_running" };
   }
   const p = match.players.get(input.memberId);
@@ -470,16 +504,79 @@ export function fold(input: {
     endMatch(match);
     return { ok: true };
   }
-  // 죽은 사람이 차례였으면 다음으로 넘긴다
-  if (match.order[match.turnIdx] === input.memberId) {
-    advanceTurn(match);
-  }
+  if (match.order[match.turnIdx] === input.memberId) advanceTurn(match);
   if (match.actedCount >= active.length) {
-    endMatch(match);
+    endBettingRound(match);
     return { ok: true };
   }
   broadcastSnapshots(match);
   return { ok: true };
+}
+
+function endBettingRound(match: SutdaMatch): void {
+  if (match.status === "bet1") {
+    dealThird(match);
+    return;
+  }
+  // bet2 끝 → 2장 선택 단계
+  match.status = "select";
+  maybeShowdown(match);
+  broadcastSnapshots(match);
+}
+
+// 3장 중 2장 선택(번복 불가)
+export function selectCards(input: {
+  groupId: string;
+  memberId: string;
+  cards: [number, number];
+}): {
+  ok: boolean;
+  reason?: "not_selecting" | "not_player" | "bad_index" | "already";
+} {
+  const match = matches.get(input.groupId);
+  if (!match || match.status !== "select") {
+    return { ok: false, reason: "not_selecting" };
+  }
+  const p = match.players.get(input.memberId);
+  if (!p || p.folded) return { ok: false, reason: "not_player" };
+  if (p.chosen) return { ok: false, reason: "already" };
+  const [i, j] = input.cards;
+  if (i === j || i < 0 || j < 0 || i >= p.cards.length || j >= p.cards.length) {
+    return { ok: false, reason: "bad_index" };
+  }
+  p.chosen = [i, j];
+  if (!maybeShowdown(match)) broadcastSnapshots(match);
+  return { ok: true };
+}
+
+// 안 죽은 사람이 모두 선택했으면 쇼다운. 진행되면 true.
+function maybeShowdown(match: SutdaMatch): boolean {
+  if (match.status !== "select") return false;
+  const active = activePlayers(match);
+  if (active.some((p) => !p.chosen)) return false;
+  for (const p of active) {
+    const [i, j] = p.chosen!;
+    p.hand = evaluate2(p.cards[i], p.cards[j]);
+  }
+  const cats = active.map((p) => p.hand!.cat);
+  if (isReplay(cats)) {
+    broadcastToGroup(match.groupId, { type: "replay" });
+    redeal(match); // 판돈 유지, 새 카드로 재경기
+    return true;
+  }
+  endMatch(match);
+  return true;
+}
+
+// 재경기용 — 앤티 없이(판돈 유지) 안 죽은 사람에게 새 2장을 돌리고 베팅 1라운드부터.
+function redeal(match: SutdaMatch): void {
+  const deck = buildDeck();
+  for (const p of activePlayers(match)) {
+    p.cards = [deck.pop()!, deck.pop()!];
+    p.chosen = null;
+    p.hand = null;
+  }
+  startBettingRound(match, "bet1", 0);
 }
 
 function endMatch(match: SutdaMatch): void {
@@ -490,12 +587,29 @@ function endMatch(match: SutdaMatch): void {
   lobby.setGameRunning(match.groupId, false);
 
   const active = activePlayers(match);
-  let winners: SutdaPlayer[] = [];
-  if (active.length > 0) {
-    const max = Math.max(...active.map((p) => p.hand?.score ?? -1));
-    winners = active.filter((p) => (p.hand?.score ?? -1) === max);
+  // 선택 안 한 패는 자동 최고 2장
+  for (const p of active) {
+    if (!p.chosen && p.cards.length >= 2) p.chosen = bestTwoOf(p.cards).pick;
+    if (p.chosen) p.hand = evaluate2(p.cards[p.chosen[0]], p.cards[p.chosen[1]]);
   }
-  // 판돈 분배(동점이면 균등, 나머지는 첫 승자에게)
+
+  let winners: SutdaPlayer[] = [];
+  if (active.length === 1) {
+    winners = [active[0]];
+  } else if (active.length > 1) {
+    let best = -Infinity;
+    for (const p of active) {
+      const others = active.filter((o) => o !== p).map((o) => o.hand!.cat);
+      const r = showdownRank(p.hand!.cat, others);
+      if (r > best) {
+        best = r;
+        winners = [p];
+      } else if (r === best) {
+        winners.push(p);
+      }
+    }
+  }
+
   if (winners.length > 0) {
     const share = Math.floor(match.pot / winners.length);
     const remainder = match.pot - share * winners.length;
@@ -517,7 +631,7 @@ function endMatch(match: SutdaMatch): void {
     }));
   match.results = results;
 
-  broadcastSnapshots(match); // 안 죽은 패 공개
+  broadcastSnapshots(match);
   broadcastToGroup(match.groupId, { type: "match_ended", results });
 
   if (match.onEnded) {
@@ -561,7 +675,6 @@ export function registerSubscriber(
     : { type: "no_match" };
 
   const unsubscribe = () => {
-    // 재연결로 더 최신 구독이 들어왔으면 remove가 false → 정리하지 않는다.
     if (!channel.remove(groupId, memberId, fn)) return;
     lobby.leave(groupId, memberId);
     broadcastLobby(groupId);
@@ -570,7 +683,6 @@ export function registerSubscriber(
   return { unsubscribe, initialEvent };
 }
 
-// 방 폭파 시 인메모리 판/구독 상태를 모두 정리한다.
 export function destroyGroupSutda(groupId: string): void {
   broadcastToGroup(groupId, { type: "group_destroyed" });
   const match = matches.get(groupId);
