@@ -4,9 +4,9 @@
 // 시작자 + 첫 합류자 중 흑(선공)/백은 랜덤 배정. 위장: 시트 셀 그리드에 ●○ 데이터 찍는 모양.
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
 import { LobbyCard, type LobbyMember } from "./LobbyCard";
 import { notifyTab } from "@/lib/tab-alert";
+import { useGameStream } from "@/lib/use-game-stream";
 
 const SIZE = 15;
 const CELLS = SIZE * SIZE;
@@ -63,7 +63,6 @@ export function OmokGame({
   isOwner: boolean;
   onAway: () => void; // 자리비움 판정 시 대기방 탭으로 이동
 }) {
-  const router = useRouter();
   const [phase, setPhase] = useState<Phase>("lobby");
   const [board, setBoard] = useState<number[]>(() =>
     new Array<number>(CELLS).fill(0),
@@ -87,16 +86,6 @@ export function OmokGame({
     amAwayRef.current = amAway;
     if (amAway) onAway();
   }, [amAway, onAway]);
-
-  // 방 폭파 시: 세션 정리 후 입장 화면으로 돌아간다.
-  const handleDestroyed = useCallback(async () => {
-    try {
-      await fetch("/api/session/leave", { method: "POST" });
-    } catch {
-      /* ignore */
-    }
-    router.refresh();
-  }, [router]);
 
   const applyEvent = useCallback(
     (ev: ServerEvent) => {
@@ -168,28 +157,8 @@ export function OmokGame({
     [],
   );
 
-  // SSE 연결
-  useEffect(() => {
-    const es = new EventSource("/api/omok/stream");
-    es.onmessage = (e) => {
-      if (!e.data) return;
-      try {
-        const ev = JSON.parse(e.data) as ServerEvent;
-        if (ev.type === "group_destroyed") {
-          es.close();
-          void handleDestroyed();
-          return;
-        }
-        applyEvent(ev);
-      } catch {
-        /* ignore */
-      }
-    };
-    es.onerror = () => {
-      /* EventSource auto-reconnects */
-    };
-    return () => es.close();
-  }, [applyEvent, handleDestroyed]);
+  // SSE 연결 (group_destroyed 처리·정리는 공용 훅이 담당)
+  useGameStream<ServerEvent>("/api/omok/stream", applyEvent);
 
   const myPlayer =
     black?.memberId === myMemberId

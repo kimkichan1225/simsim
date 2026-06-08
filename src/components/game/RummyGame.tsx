@@ -6,7 +6,6 @@
 // 손패는 서버가 본인에게만 보내는 개인화 스냅샷으로 받는다.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
 import {
   INITIAL_MELD_POINTS,
   rackPenalty,
@@ -14,6 +13,7 @@ import {
   type RummyTile,
 } from "@/lib/rummy-rules";
 import { notifyTab } from "@/lib/tab-alert";
+import { useGameStream } from "@/lib/use-game-stream";
 import { LobbyCard, type LobbyMember } from "./LobbyCard";
 
 // 타일 색 (0~3) — 구글 차트 팔레트로 위장
@@ -125,7 +125,6 @@ export function RummyGame({
   isOwner: boolean;
   onAway: () => void;
 }) {
-  const router = useRouter();
   const [phase, setPhase] = useState<Phase>("lobby");
   const [players, setPlayers] = useState<PlayerView[]>([]);
   const [turnMemberId, setTurnMemberId] = useState<string | null>(null);
@@ -164,15 +163,6 @@ export function RummyGame({
     amAwayRef.current = amAway;
     if (amAway) onAway();
   }, [amAway, onAway]);
-
-  const handleDestroyed = useCallback(async () => {
-    try {
-      await fetch("/api/session/leave", { method: "POST" });
-    } catch {
-      /* ignore */
-    }
-    router.refresh();
-  }, [router]);
 
   const applyEvent = useCallback(
     (ev: ServerEvent) => {
@@ -249,27 +239,8 @@ export function RummyGame({
     [myMemberId],
   );
 
-  useEffect(() => {
-    const es = new EventSource("/api/rummy/stream");
-    es.onmessage = (e) => {
-      if (!e.data) return;
-      try {
-        const ev = JSON.parse(e.data) as ServerEvent;
-        if (ev.type === "group_destroyed") {
-          es.close();
-          void handleDestroyed();
-          return;
-        }
-        applyEvent(ev);
-      } catch {
-        /* ignore */
-      }
-    };
-    es.onerror = () => {
-      /* EventSource auto-reconnects */
-    };
-    return () => es.close();
-  }, [applyEvent, handleDestroyed]);
+  // SSE 연결 (group_destroyed 처리·정리는 공용 훅이 담당)
+  useGameStream<ServerEvent>("/api/rummy/stream", applyEvent);
 
   const me = players.find((p) => p.memberId === myMemberId) ?? null;
   const isMyTurn =

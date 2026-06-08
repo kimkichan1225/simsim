@@ -1,8 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
 import { LobbyCard, type LobbyMember } from "./LobbyCard";
+import { useGameStream } from "@/lib/use-game-stream";
 
 type Participant = {
   memberId: string;
@@ -88,7 +88,6 @@ export function MultiplayerGame({
   isOwner: boolean;
   onAway: () => void; // 자리비움 판정 시 대기방 탭으로 이동
 }) {
-  const router = useRouter();
   const [state, setState] = useState<State>(initialState);
   const [input, setInput] = useState("");
   const [activeWordId, setActiveWordId] = useState<string | null>(null);
@@ -179,38 +178,8 @@ export function MultiplayerGame({
     });
   }, []);
 
-  // 방 폭파 시: 세션 정리 후 입장 화면으로 돌아간다.
-  const handleDestroyed = useCallback(async () => {
-    try {
-      await fetch("/api/session/leave", { method: "POST" });
-    } catch {
-      /* ignore */
-    }
-    router.refresh();
-  }, [router]);
-
-  // SSE 연결
-  useEffect(() => {
-    const es = new EventSource("/api/play/stream");
-    es.onmessage = (e) => {
-      if (!e.data) return;
-      try {
-        const ev = JSON.parse(e.data) as ServerEvent;
-        if (ev.type === "group_destroyed") {
-          es.close();
-          void handleDestroyed();
-          return;
-        }
-        applyEvent(ev);
-      } catch {
-        /* ignore */
-      }
-    };
-    es.onerror = () => {
-      /* EventSource auto-reconnects */
-    };
-    return () => es.close();
-  }, [applyEvent, handleDestroyed]);
+  // SSE 연결 (group_destroyed 처리·정리는 공용 훅이 담당)
+  useGameStream<ServerEvent>("/api/play/stream", applyEvent);
 
   // 자리비움 판정 → 대기방 탭으로 이동. 탭 전환으로 언마운트되면 로비에서도 빠진다.
   const amAway =

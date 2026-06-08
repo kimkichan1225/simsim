@@ -5,8 +5,8 @@
 // 범위 내 남은 숫자 합이 정확히 10이면 지워지고 지운 개수만큼 점수.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
 import { LobbyCard, type LobbyMember } from "./LobbyCard";
+import { useGameStream } from "@/lib/use-game-stream";
 
 const ROWS = 10;
 const COLS = 17;
@@ -80,7 +80,6 @@ export function AppleGame({
   isOwner: boolean;
   onAway: () => void; // 자리비움 판정 시 대기방 탭으로 이동
 }) {
-  const router = useRouter();
   const [phase, setPhase] = useState<Phase>("lobby");
   const [endsAt, setEndsAt] = useState<number | null>(null);
   const [board, setBoard] = useState<number[] | null>(null);
@@ -120,16 +119,6 @@ export function AppleGame({
     phaseRef.current = phase;
     amAwayRef.current = amAway;
   });
-
-  // 방 폭파 시: 세션 정리 후 입장 화면으로 돌아간다.
-  const handleDestroyed = useCallback(async () => {
-    try {
-      await fetch("/api/session/leave", { method: "POST" });
-    } catch {
-      /* ignore */
-    }
-    router.refresh();
-  }, [router]);
 
   const applyEvent = useCallback(
     (ev: ServerEvent) => {
@@ -255,28 +244,8 @@ export function AppleGame({
     [myMemberId],
   );
 
-  // SSE 연결
-  useEffect(() => {
-    const es = new EventSource("/api/apple/stream");
-    es.onmessage = (e) => {
-      if (!e.data) return;
-      try {
-        const ev = JSON.parse(e.data) as ServerEvent;
-        if (ev.type === "group_destroyed") {
-          es.close();
-          void handleDestroyed();
-          return;
-        }
-        applyEvent(ev);
-      } catch {
-        /* ignore */
-      }
-    };
-    es.onerror = () => {
-      /* EventSource auto-reconnects */
-    };
-    return () => es.close();
-  }, [applyEvent, handleDestroyed]);
+  // SSE 연결 (group_destroyed 처리·정리는 공용 훅이 담당)
+  useGameStream<ServerEvent>("/api/apple/stream", applyEvent);
 
   // UI 클럭 (남은 시간)
   useEffect(() => {

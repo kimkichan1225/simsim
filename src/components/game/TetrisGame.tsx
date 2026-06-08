@@ -8,8 +8,8 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { useRouter } from "next/navigation";
 import { LobbyCard, type LobbyMember } from "./LobbyCard";
+import { useGameStream } from "@/lib/use-game-stream";
 
 // ── 테트리스 상수 (3d-fit 게임 방식 포팅) ──
 const COLS = 10;
@@ -862,7 +862,6 @@ export function TetrisGame({
   isOwner: boolean;
   onAway: () => void; // 자리비움 판정 시 대기방 탭으로 이동
 }) {
-  const router = useRouter();
   const [phase, setPhase] = useState<Phase>("lobby");
   const [matchId, setMatchId] = useState<string | null>(null);
   const [players, setPlayers] = useState<PlayerView[]>([]);
@@ -894,16 +893,6 @@ export function TetrisGame({
     targetIdRef.current = id;
     setTargetIdState(id);
   }, []);
-
-  // 방 폭파 시: 세션 정리 후 입장 화면으로 돌아간다(다른 게임과 동일).
-  const handleDestroyed = useCallback(async () => {
-    try {
-      await fetch("/api/session/leave", { method: "POST" });
-    } catch {
-      /* ignore */
-    }
-    router.refresh();
-  }, [router]);
 
   const applyEvent = useCallback(
     (ev: TetrisEvent) => {
@@ -1015,28 +1004,8 @@ export function TetrisGame({
     [myMemberId, setTarget],
   );
 
-  // SSE 연결 (탭이 마운트된 동안 유지)
-  useEffect(() => {
-    const es = new EventSource("/api/tetris/stream");
-    es.onmessage = (e) => {
-      if (!e.data) return;
-      try {
-        const ev = JSON.parse(e.data) as TetrisEvent;
-        if (ev.type === "group_destroyed") {
-          es.close();
-          void handleDestroyed();
-          return;
-        }
-        applyEvent(ev);
-      } catch {
-        /* ignore */
-      }
-    };
-    es.onerror = () => {
-      /* EventSource 자동 재연결 */
-    };
-    return () => es.close();
-  }, [applyEvent, handleDestroyed]);
+  // SSE 연결 (group_destroyed 처리·정리는 공용 훅이 담당)
+  useGameStream<TetrisEvent>("/api/tetris/stream", applyEvent);
 
   const postBoard = useCallback((board: Board, score: number) => {
     void fetch("/api/tetris/board", {
