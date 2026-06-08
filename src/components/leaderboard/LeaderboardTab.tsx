@@ -13,11 +13,18 @@ type Row = {
 };
 
 type GameData = { solo: Row[]; versus: Row[] };
+type SutdaRow = {
+  memberId: string;
+  nickname: string;
+  gold: number;
+  netProfit: number;
+};
 type Data = {
   tetris: GameData;
   apple: GameData;
   omok: GameData;
   rummy: GameData;
+  sutda: SutdaRow[];
 };
 
 type Col = { label: string; width: number; align: "left" | "right" };
@@ -118,6 +125,85 @@ export function LeaderboardTab({ refreshKey }: { refreshKey: number }) {
         rows={data.rummy.versus}
         mode="versus"
       />
+      {/* 섯다는 골드 게임 — 보유 골드·누적 손익 */}
+      <SutdaTable rows={data.sutda} />
+    </div>
+  );
+}
+
+const SUTDA_COLS: Col[] = [
+  { label: "순위", width: 70, align: "left" },
+  { label: "닉네임", width: 150, align: "left" },
+  { label: "보유 골드", width: 110, align: "right" },
+  { label: "누적 손익", width: 110, align: "right" },
+];
+
+function SutdaTable({ rows }: { rows: SutdaRow[] }) {
+  // 한 번이라도 손익이 생긴 사람만(=게임 참여) 순위에, 나머지는 뒤로
+  const played = rows.filter((r) => r.netProfit !== 0);
+  const shown = played.length > 0 ? played : rows;
+  return (
+    <div className="min-w-max">
+      <div className="text-[13px] font-medium text-[var(--sheet-fg)] mb-1.5">
+        🟢 섯다 — 골드
+      </div>
+      <div className="flex sticky top-0 z-10 bg-[var(--sheet-header-bg)] border-b border-[var(--sheet-cell-border)]">
+        <div className="w-10 h-6 border-r border-[var(--sheet-cell-border)]" />
+        {SUTDA_COLS.map((c, i) => (
+          <div
+            key={c.label}
+            style={{ width: c.width }}
+            className="h-6 border-r border-[var(--sheet-cell-border)] grid place-items-center text-[12px] text-[var(--sheet-muted)]"
+          >
+            {COL_LETTERS[i]}
+          </div>
+        ))}
+      </div>
+      <div className="flex bg-white border-b border-[var(--sheet-cell-border)]">
+        <RowNum n={1} />
+        {SUTDA_COLS.map((c) => (
+          <div
+            key={c.label}
+            style={{ width: c.width }}
+            className="h-[22px] border-r border-[var(--sheet-cell-border)] px-2 text-[12px] font-medium text-[var(--sheet-fg)] flex items-center"
+          >
+            {c.label}
+          </div>
+        ))}
+      </div>
+      {shown.length === 0 ? (
+        <div className="px-3 py-2 text-[12px] text-[var(--sheet-muted)]">
+          아직 기록이 없어요.
+        </div>
+      ) : (
+        shown.map((row, idx) => (
+          <div key={row.memberId} className="flex bg-white">
+            <RowNum n={idx + 2} />
+            <Cell width={SUTDA_COLS[0].width}>
+              {idx < 3 && played.length > 0 ? `${MEDALS[idx]} ` : ""}
+              {idx + 1}
+            </Cell>
+            <Cell width={SUTDA_COLS[1].width}>{row.nickname}</Cell>
+            <Cell width={SUTDA_COLS[2].width} align="right">
+              {row.gold.toLocaleString("ko-KR")}
+            </Cell>
+            <Cell width={SUTDA_COLS[3].width} align="right">
+              <span
+                className={
+                  row.netProfit > 0
+                    ? "text-[var(--sheet-green)]"
+                    : row.netProfit < 0
+                      ? "text-[#d93025]"
+                      : ""
+                }
+              >
+                {row.netProfit > 0 ? "+" : ""}
+                {row.netProfit.toLocaleString("ko-KR")}
+              </span>
+            </Cell>
+          </div>
+        ))
+      )}
     </div>
   );
 }

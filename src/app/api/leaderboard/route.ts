@@ -48,7 +48,7 @@ export async function GET() {
   const [members, results] = await Promise.all([
     prisma.member.findMany({
       where: { groupId: me.groupId },
-      select: { id: true, nickname: true },
+      select: { id: true, nickname: true, gold: true, netProfit: true },
       take: MAX_MEMBERS,
     }),
     prisma.matchResult.findMany({
@@ -138,5 +138,14 @@ export async function GET() {
       solo: buildRows("rummy", "solo"),
       versus: buildRows("rummy", "versus"),
     },
+    // 섯다는 골드 게임 — 보유 골드·누적 손익을 손익 높은 순으로
+    sutda: [...members]
+      .sort((a, b) => b.netProfit - a.netProfit)
+      .map((m) => ({
+        memberId: m.id,
+        nickname: m.nickname,
+        gold: m.gold,
+        netProfit: m.netProfit,
+      })),
   });
 }
