@@ -28,6 +28,8 @@ model Member {
   nicknameKey   String
   sessionSecret String
   joinedAt      DateTime @default(now())
+  gold          Int      @default(10000) // 보유 게임머니(섯다 등)
+  netProfit     Int      @default(0)     // 게임 누적 손익(딴 골드 − 잃은 골드, 충전은 제외)
 
   group         Group          @relation(fields: [groupId], references: [id], onDelete: Cascade)
   gameRuns      GameRun[]
