@@ -11,10 +11,20 @@ import { useGameStream } from "@/lib/use-game-stream";
 
 const ANTE = 100;
 
-// 화투 월별 색(위장: 시트 셀 데이터처럼 보이게 절제된 팔레트)
+// 화투 월별 색 — 1~10월이 서로 확실히 구별되도록 무지개 계열로 배치
+// (index 0은 미사용, 3·8월은 광이 있는 월)
 const MONTH_COLOR = [
-  "#202124", "#d93025", "#1a73e8", "#e8710a", "#188038", "#9334e6",
-  "#1967d2", "#c5221f", "#a8071a", "#3c4043", "#5f6368",
+  "#202124", // 0 (미사용)
+  "#d50000", // 1 빨강
+  "#e8710a", // 2 주황
+  "#f9a825", // 3 황금(광)
+  "#2e7d32", // 4 초록
+  "#00897b", // 5 청록
+  "#1a73e8", // 6 파랑
+  "#3949ab", // 7 남색
+  "#8e24aa", // 8 보라(광)
+  "#c2185b", // 9 자홍
+  "#5d4037", // 10 갈색
 ];
 
 type Card = { id: string; month: number; gwang: boolean };
@@ -91,6 +101,7 @@ export function SutdaGame({
   const [startError, setStartError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [actError, setActError] = useState<string | null>(null);
+  const [showGuide, setShowGuide] = useState(true);
 
   const amAwayRef = useRef(false);
   const amAway =
@@ -249,6 +260,8 @@ export function SutdaGame({
         inGame={phase === "betting" || phase === "joining"}
       />
 
+      <HandGuide open={showGuide} onToggle={() => setShowGuide((v) => !v)} />
+
       {(phase === "betting" || phase === "joining" || phase === "result") && (
         <PotBar
           pot={pot}
@@ -371,6 +384,50 @@ function fmt(n: number): string {
   return n.toLocaleString("ko-KR");
 }
 
+// 족보 안내(접기 가능). 높은 순으로 한눈에 보여준다.
+const HAND_GUIDE_ROWS: { tag: string; desc: string }[] = [
+  { tag: "최고", desc: "38광땡 (3·8월 둘 다 광)" },
+  { tag: "땡", desc: "같은 월 — 장땡(10) > 9 > … > 1" },
+  {
+    tag: "특수",
+    desc: "알리(1·2) · 독사(1·4) · 구삥(1·9) · 장삥(1·10) · 장사(4·10) · 세륙(4·6)",
+  },
+  { tag: "끗수", desc: "두 월 합의 끝자리 — 갑오(9끗) > … > 1끗 > 망통(0끗)" },
+];
+
+function HandGuide({
+  open,
+  onToggle,
+}: {
+  open: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <div className="border border-[var(--sheet-cell-border)] bg-white">
+      <button
+        type="button"
+        onClick={onToggle}
+        className="flex items-center justify-between w-full px-3 py-1.5 text-[12px] font-medium text-[var(--sheet-fg)] hover:bg-black/5"
+      >
+        <span>족보 (높은 순)</span>
+        <span className="text-[var(--sheet-muted)]">{open ? "▲" : "▼"}</span>
+      </button>
+      {open && (
+        <div className="flex flex-col gap-1 px-3 pb-2">
+          {HAND_GUIDE_ROWS.map((r) => (
+            <div key={r.tag} className="flex items-start gap-2 text-[12px]">
+              <span className="shrink-0 w-9 text-[var(--sheet-active)] font-medium">
+                {r.tag}
+              </span>
+              <span className="text-[var(--sheet-muted)]">{r.desc}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function WalletBar({
   gold,
   netProfit,
@@ -442,16 +499,15 @@ function HwatuCard({ card, hidden }: { card?: Card; hidden?: boolean }) {
       </div>
     );
   }
+  const color = MONTH_COLOR[card.month] ?? "#202124";
   return (
     <div
-      className="w-9 h-12 rounded border border-[var(--sheet-cell-border)] bg-white grid place-items-center shadow-sm select-none relative"
-      style={{ color: MONTH_COLOR[card.month] ?? "#202124" }}
+      className="w-9 h-12 rounded border-2 bg-white grid place-items-center shadow-sm select-none relative"
+      style={{ color, borderColor: color }}
     >
-      <span className="text-[17px] font-semibold leading-none">
-        {card.month}
-      </span>
+      <span className="text-[18px] font-bold leading-none">{card.month}</span>
       {card.gwang && (
-        <span className="absolute bottom-0.5 text-[8px] text-[#e8710a] font-bold">
+        <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-[#e8710a] text-white text-[9px] font-bold grid place-items-center">
           光
         </span>
       )}
