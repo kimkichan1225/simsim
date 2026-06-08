@@ -5,7 +5,7 @@ import { getCurrentMember } from "@/server/auth";
 const MAX_MEMBERS = 100;
 const MAX_RESULTS = 5000;
 
-type GameKey = "word" | "tetris" | "apple" | "suika" | "omok" | "rummy";
+type GameKey = "tetris" | "apple" | "omok" | "rummy";
 type ModeKey = "solo" | "versus"; // 혼자(참가자 1명) | 대결(2명 이상)
 
 type Row = {
@@ -31,11 +31,10 @@ function emptyAcc(): Acc {
   return { best: 0, wins: 0, losses: 0, matches: 0, lastPlayedAt: null };
 }
 
-// word 외 게임 키 (그 외 game 값은 모두 word로 집계)
+// 집계 대상 게임 키 (그 외 game 값 — 제거된 단어줍기·수박게임 등 — 은 집계에서 제외)
 const KNOWN_GAMES: ReadonlySet<string> = new Set([
   "tetris",
   "apple",
-  "suika",
   "omok",
   "rummy",
 ]);
@@ -69,18 +68,16 @@ export async function GET() {
 
   // 게임·모드별 → 멤버별 누적
   const byGameMode: Record<GameKey, Record<ModeKey, Map<string, Acc>>> = {
-    word: { solo: new Map(), versus: new Map() },
     tetris: { solo: new Map(), versus: new Map() },
     apple: { solo: new Map(), versus: new Map() },
-    suika: { solo: new Map(), versus: new Map() },
     omok: { solo: new Map(), versus: new Map() },
     rummy: { solo: new Map(), versus: new Map() },
   };
 
   for (const r of results) {
-    const gameKey: GameKey = KNOWN_GAMES.has(r.game)
-      ? (r.game as GameKey)
-      : "word";
+    // 제거된 게임(단어줍기·수박게임 등)의 과거 기록은 집계에서 제외한다
+    if (!KNOWN_GAMES.has(r.game)) continue;
+    const gameKey = r.game as GameKey;
     const modeKey: ModeKey = r.totalParticipants >= 2 ? "versus" : "solo";
     const map = byGameMode[gameKey][modeKey];
     let acc = map.get(r.memberId);
@@ -123,10 +120,6 @@ export async function GET() {
   }
 
   return NextResponse.json({
-    word: {
-      solo: buildRows("word", "solo"),
-      versus: buildRows("word", "versus"),
-    },
     tetris: {
       solo: buildRows("tetris", "solo"),
       versus: buildRows("tetris", "versus"),
@@ -134,11 +127,6 @@ export async function GET() {
     apple: {
       solo: buildRows("apple", "solo"),
       versus: buildRows("apple", "versus"),
-    },
-    // 수박게임은 개인전 전용 — solo만 의미 있다
-    suika: {
-      solo: buildRows("suika", "solo"),
-      versus: buildRows("suika", "versus"),
     },
     // 오목은 1:1 대결 전용 — versus만 의미 있다
     omok: {

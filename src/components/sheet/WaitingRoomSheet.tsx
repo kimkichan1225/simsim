@@ -18,10 +18,8 @@ type WaitingMember = {
 // 탭 ID → 표시 라벨. 모르는 값(새 게임 등)은 "이동 중"으로 둔다.
 const LOCATION_LABEL: Record<string, string> = {
   waiting: "대기방",
-  match: "단어줍기",
   tetris: "테트리스",
   apple: "사과게임",
-  suika: "수박게임",
   omok: "오목",
   rummy: "루미큐브",
   leaderboard: "점수판",

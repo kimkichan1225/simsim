@@ -5,10 +5,8 @@ import { useRouter } from "next/navigation";
 import { ActivityTab } from "@/components/activity/ActivityTab";
 import { ChatButton } from "@/components/chat/ChatButton";
 import { AppleGame } from "@/components/game/AppleGame";
-import { MultiplayerGame } from "@/components/game/MultiplayerGame";
 import { OmokGame } from "@/components/game/OmokGame";
 import { RummyGame } from "@/components/game/RummyGame";
-import { SuikaGame } from "@/components/game/SuikaGame";
 import { TetrisGame } from "@/components/game/TetrisGame";
 import { LeaderboardTab } from "@/components/leaderboard/LeaderboardTab";
 import { applySavedTabName } from "@/lib/tab-alert";
@@ -17,10 +15,8 @@ import { WaitingRoomSheet } from "./WaitingRoomSheet";
 
 const TABS: SheetTab[] = [
   { id: "waiting", label: "대기방" },
-  { id: "match", label: "단어줍기" },
   { id: "tetris", label: "테트리스" },
   { id: "apple", label: "사과게임" },
-  { id: "suika", label: "수박게임" },
   { id: "omok", label: "오목" },
   { id: "rummy", label: "루미큐브" },
   { id: "leaderboard", label: "점수판" },
@@ -97,16 +93,6 @@ export function WorkspaceSheet({
       }
     >
       {activeTabId === "waiting" && <WaitingRoomSheet />}
-      {activeTabId === "match" && (
-        <div className="px-6">
-          <MultiplayerGame
-            myMemberId={memberId}
-            myNickname={nickname}
-            isOwner={isOwner}
-            onAway={goWaiting}
-          />
-        </div>
-      )}
       {activeTabId === "tetris" && (
         <div className="px-6">
           <TetrisGame
@@ -125,11 +111,6 @@ export function WorkspaceSheet({
             isOwner={isOwner}
             onAway={goWaiting}
           />
-        </div>
-      )}
-      {activeTabId === "suika" && (
-        <div className="px-6">
-          <SuikaGame />
         </div>
       )}
       {activeTabId === "omok" && (

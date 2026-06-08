@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { removeSubscriber } from "@/lib/multiplayer";
 import { removePresence } from "@/lib/waiting";
 import {
   clearSessionCookie,
@@ -12,7 +11,6 @@ export async function POST() {
   if (me) {
     try {
       await rotateMemberSessionSecret(me.memberId);
-      removeSubscriber(me.groupId, me.memberId);
       // 나가기 즉시 대기방 위치 명단에서도 내린다(TTL 대기 없이)
       removePresence(me.groupId, me.memberId);
     } catch (e) {

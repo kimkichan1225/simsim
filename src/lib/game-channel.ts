@@ -1,4 +1,4 @@
-// 그룹별 SSE 구독 허브 — 게임 모듈(omok/rummy/apple/tetris/multiplayer)과
+// 그룹별 SSE 구독 허브 — 게임 모듈(omok/rummy/apple/tetris)과
 // 대기방·채팅이 공유한다. groupSubscribers Map 복붙을 대체한다.
 //
 // 핵심: broadcast()는 동일 이벤트를 구독자 수와 무관하게 JSON.stringify를 1회만 한다

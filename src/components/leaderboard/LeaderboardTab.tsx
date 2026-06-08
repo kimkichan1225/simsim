@@ -14,10 +14,8 @@ type Row = {
 
 type GameData = { solo: Row[]; versus: Row[] };
 type Data = {
-  word: GameData;
   tetris: GameData;
   apple: GameData;
-  suika: GameData;
   omok: GameData;
   rummy: GameData;
 };
@@ -92,12 +90,6 @@ export function LeaderboardTab({ refreshKey }: { refreshKey: number }) {
 
   return (
     <div className="flex flex-col gap-8 select-none">
-      <ScoreTable title="🟦 단어줍기 — 혼자" rows={data.word.solo} mode="solo" />
-      <ScoreTable
-        title="🟦 단어줍기 — 대결"
-        rows={data.word.versus}
-        mode="versus"
-      />
       <ScoreTable
         title="⬜ 테트리스 — 혼자"
         rows={data.tetris.solo}
@@ -117,12 +109,6 @@ export function LeaderboardTab({ refreshKey }: { refreshKey: number }) {
         title="🟥 사과게임 — 대결"
         rows={data.apple.versus}
         mode="versus"
-      />
-      {/* 수박게임은 개인전 전용 — 혼자 기록만 표시 */}
-      <ScoreTable
-        title="🟢 수박게임 — 혼자"
-        rows={data.suika.solo}
-        mode="solo"
       />
       {/* 오목은 1:1 전용 — 점수 없이 승/패만 표시 */}
       <ScoreTable title="⚫ 오목 — 대결" rows={data.omok.versus} mode="duel" />
