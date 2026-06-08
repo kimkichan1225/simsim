@@ -93,7 +93,8 @@ export type SutdaPlayerView = {
   bet: number;
   folded: boolean;
   selected: boolean;
-  cardCount: number; // 받은 패 수(상대 패 뒷면 개수)
+  cardCount: number; // 받은 패 수
+  openCard: SutdaCard | null; // 베팅 중 공개되는 첫 2장 중 1장(둘째 장)
   cards: SutdaCard[] | null; // 공개 시(쇼다운에서 안 죽은 패의 선택 2장)
   hand: string | null;
 };
@@ -209,6 +210,11 @@ function playerView(
   p: SutdaPlayer,
 ): SutdaPlayerView {
   const showdown = match.status === "ended" && !p.folded;
+  const inHand =
+    (match.status === "bet1" ||
+      match.status === "bet2" ||
+      match.status === "select") &&
+    !p.folded;
   const chosenCards =
     p.chosen && p.cards.length >= 2
       ? ([p.cards[p.chosen[0]], p.cards[p.chosen[1]]] as SutdaCard[])
@@ -221,6 +227,8 @@ function playerView(
     folded: p.folded,
     selected: p.chosen != null,
     cardCount: p.cards.length,
+    // 첫 2장 중 둘째 장이 오픈(2장 받고 1장 오픈 룰)
+    openCard: inHand && p.cards.length >= 2 ? p.cards[1] : null,
     cards: showdown ? chosenCards : null,
     hand: showdown ? (p.hand?.name ?? null) : null,
   };

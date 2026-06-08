@@ -27,6 +27,7 @@ type PlayerView = {
   folded: boolean;
   selected: boolean;
   cardCount: number;
+  openCard: SutdaCard | null;
   cards: SutdaCard[] | null;
   hand: string | null;
 };
@@ -704,20 +705,24 @@ function MyHand({
           </span>
         )}
       </div>
-      <div className="flex gap-2 justify-center">
+      <div className="flex gap-2 justify-center items-start">
         {cards.map((c, i) => {
           const isChosen = chosen
             ? i === chosen[0] || i === chosen[1]
             : pick.includes(i);
           return (
-            <CardView
-              key={c.id}
-              card={c}
-              big
-              selected={isChosen}
-              selectable={selecting}
-              onClick={selecting ? () => onToggle(i) : undefined}
-            />
+            <div key={c.id} className="flex flex-col items-center gap-0.5">
+              <CardView
+                card={c}
+                big
+                selected={isChosen}
+                selectable={selecting}
+                onClick={selecting ? () => onToggle(i) : undefined}
+              />
+              {i === 1 && (
+                <span className="text-[9px] text-[#d93025]">공개됨</span>
+              )}
+            </div>
           );
         })}
       </div>
@@ -773,11 +778,17 @@ function PlayersTable({
               {p.folded ? (
                 <span className="text-[12px] text-[var(--sheet-muted)]">다이</span>
               ) : p.cards ? (
+                // 쇼다운 — 선택한 2장 공개
                 p.cards.map((c) => <CardView key={c.id} card={c} />)
               ) : (
-                Array.from({ length: Math.max(1, p.cardCount) }).map((_, i) => (
-                  <CardView key={i} hidden />
-                ))
+                // 베팅 중 — 둘째 장(openCard)만 공개, 나머지는 뒷면
+                Array.from({ length: Math.max(1, p.cardCount) }).map((_, i) =>
+                  i === 1 && p.openCard ? (
+                    <CardView key={p.openCard.id} card={p.openCard} />
+                  ) : (
+                    <CardView key={i} hidden />
+                  ),
+                )
               )}
             </div>
             {p.hand && !p.folded ? (
