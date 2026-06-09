@@ -28,6 +28,7 @@ export type SutdaStatus =
   | "bet1"
   | "bet2"
   | "select"
+  | "showdown" // 재경기 직전, 패를 공개하고 잠시 보여주는 단계
   | "ended";
 export type SutdaAction = "call" | "bbing" | "ttadang" | "half";
 
@@ -135,7 +136,7 @@ export type SutdaEvent =
   | { type: "match_started"; matchId: string }
   | { type: "match_cancelled" }
   | { type: "match_ended"; results: SutdaResult[] }
-  | { type: "replay" }
+  | { type: "replay"; reason: "gusa" | "tie" }
   | { type: "lobby"; members: LobbyMemberView[] }
   | { type: "group_destroyed" };
 
@@ -218,7 +219,8 @@ function playerView(
   match: SutdaMatch,
   p: SutdaPlayer,
 ): SutdaPlayerView {
-  const showdown = match.status === "ended" && !p.folded;
+  const showdown =
+    (match.status === "ended" || match.status === "showdown") && !p.folded;
   const inHand =
     (match.status === "openpick" ||
       match.status === "bet1" ||
@@ -631,22 +633,42 @@ function maybeShowdown(match: SutdaMatch): boolean {
   const cats = active.map((p) => p.hand!.cat);
   // 구사/멍구사 재경기 — 안 죽은 전원이 새 카드
   if (isReplay(cats)) {
-    broadcastToGroup(match.groupId, { type: "replay" });
-    redeal(match);
+    scheduleReplay(match, "gusa", active);
     return true;
   }
   // 무승부 재경기 — 최고 족보가 둘 이상이면 그 동점자끼리만 재경기(판돈 유지)
   const winners = computeWinners(active);
   if (winners.length >= 2) {
-    broadcastToGroup(match.groupId, { type: "replay" });
-    for (const p of active) {
-      if (!winners.includes(p)) p.folded = true;
-    }
-    redeal(match);
+    scheduleReplay(match, "tie", winners);
     return true;
   }
   endMatch(match);
   return true;
+}
+
+// 재경기 직전 패를 공개하고 잠시 보여줄 시간(ms)
+const REPLAY_DELAY_MS = 4000;
+
+// 패를 공개한 채 잠시 멈췄다가 재경기를 시작한다. survivors만 다음 판에 남는다.
+function scheduleReplay(
+  match: SutdaMatch,
+  reason: "gusa" | "tie",
+  survivors: SutdaPlayer[],
+): void {
+  match.status = "showdown";
+  broadcastSnapshots(match); // 안 죽은 사람들의 패 공개
+  broadcastToGroup(match.groupId, { type: "replay", reason });
+
+  if (match.dealTimer) clearTimeout(match.dealTimer);
+  match.dealTimer = setTimeout(() => {
+    match.dealTimer = null;
+    if (matches.get(match.groupId) !== match) return; // 그 사이 판이 정리됐으면 중단
+    // 동점 재경기에서 동점자가 아닌 사람은 이번에 탈락
+    for (const p of activePlayers(match)) {
+      if (!survivors.includes(p)) p.folded = true;
+    }
+    redeal(match);
+  }, REPLAY_DELAY_MS);
 }
 
 // 재경기용 — 앤티 없이(판돈 유지) 안 죽은 사람에게 새 2장을 돌리고 베팅 1라운드부터.

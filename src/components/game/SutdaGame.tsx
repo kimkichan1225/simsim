@@ -44,7 +44,14 @@ type Result = {
 type Snapshot = {
   type: "snapshot";
   matchId: string;
-  status: "joining" | "openpick" | "bet1" | "bet2" | "select" | "ended";
+  status:
+    | "joining"
+    | "openpick"
+    | "bet1"
+    | "bet2"
+    | "select"
+    | "showdown"
+    | "ended";
   round: 1 | 2;
   players: PlayerView[];
   turnMemberId: string | null;
@@ -62,7 +69,7 @@ type ServerEvent =
   | { type: "match_started"; matchId: string }
   | { type: "match_cancelled" }
   | { type: "match_ended"; results: Result[] }
-  | { type: "replay" }
+  | { type: "replay"; reason: "gusa" | "tie" }
   | { type: "lobby"; members: LobbyMember[] }
   | { type: "group_destroyed" };
 
@@ -80,6 +87,7 @@ type Phase =
   | "openpick"
   | "betting"
   | "selecting"
+  | "showdown"
   | "result";
 
 export function SutdaGame({
@@ -160,6 +168,9 @@ export function SutdaGame({
           } else if (ev.status === "select") {
             setResults(null);
             setPhase("selecting");
+          } else if (ev.status === "showdown") {
+            setResults(null);
+            setPhase("showdown");
           } else {
             const res = ev.results ?? null;
             setResults(res);
@@ -185,7 +196,11 @@ export function SutdaGame({
           break;
         }
         case "replay": {
-          setNotice("재경기! 카드를 다시 돌려요.");
+          setNotice(
+            ev.reason === "gusa"
+              ? "구사/멍구사! 패를 공개합니다 — 잠시 후 재경기로 카드를 다시 돌려요."
+              : "무승부! 패를 공개합니다 — 잠시 후 동점자끼리 재경기해요.",
+          );
           setPick([]);
           break;
         }
@@ -320,7 +335,8 @@ export function SutdaGame({
     phase === "betting" ||
     phase === "joining" ||
     phase === "openpick" ||
-    phase === "selecting";
+    phase === "selecting" ||
+    phase === "showdown";
 
   return (
     <div className="flex flex-col gap-3 w-full max-w-2xl mx-auto pt-4 pb-8">
@@ -332,13 +348,25 @@ export function SutdaGame({
         myCat={inGame || phase === "result" ? (myHand?.cat ?? null) : null}
       />
 
-      {notice && (phase === "betting" || phase === "selecting") && (
-        <div className="text-center text-[12px] text-[var(--sheet-active)] bg-[var(--sheet-active-bg)] rounded py-1.5">
-          {notice}
-        </div>
-      )}
+      {notice &&
+        (phase === "betting" ||
+          phase === "selecting" ||
+          phase === "showdown") && (
+          <div
+            className={`text-center rounded py-1.5 ${
+              phase === "showdown"
+                ? "text-[14px] font-medium text-[var(--sheet-active)] bg-[var(--sheet-active-bg)] py-2.5"
+                : "text-[12px] text-[var(--sheet-active)] bg-[var(--sheet-active-bg)]"
+            }`}
+          >
+            {notice}
+          </div>
+        )}
 
-      {(phase === "betting" || phase === "selecting" || phase === "result") && (
+      {(phase === "betting" ||
+        phase === "selecting" ||
+        phase === "showdown" ||
+        phase === "result") && (
         <PotBar pot={pot} currentBet={currentBet} round={roundNo} status={status} />
       )}
 
@@ -351,6 +379,7 @@ export function SutdaGame({
       {(phase === "openpick" ||
         phase === "betting" ||
         phase === "selecting" ||
+        phase === "showdown" ||
         phase === "result") && (
         <PlayersTable
           players={players}
@@ -633,6 +662,8 @@ function PotBar({
       <span className="text-[var(--sheet-muted)]">·</span>
       {status === "select" ? (
         <span className="text-[13px] text-[var(--sheet-muted)]">2장 선택 중</span>
+      ) : status === "showdown" ? (
+        <span className="text-[13px] text-[var(--sheet-active)]">패 공개</span>
       ) : status === "ended" ? (
         <span className="text-[13px] text-[var(--sheet-muted)]">오픈</span>
       ) : (
