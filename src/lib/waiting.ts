@@ -33,7 +33,8 @@ function broadcastToGroup(groupId: string, event: WaitingEvent): void {
   channel.broadcast(groupId, event);
 }
 
-function rosterOf(groupId: string): WaitingEvent {
+// 현재 접속자 명단 스냅샷(닉네임순). 공유 팝업의 방장용 명단 조회 등에 쓴다.
+export function snapshotRoster(groupId: string): WaitingMember[] {
   const presence = groupPresence.get(groupId);
   const list: WaitingMember[] = presence
     ? [...presence.entries()].map(([memberId, p]) => ({
@@ -43,7 +44,11 @@ function rosterOf(groupId: string): WaitingEvent {
       }))
     : [];
   list.sort((a, b) => a.nickname.localeCompare(b.nickname));
-  return { type: "waiting", members: list };
+  return list;
+}
+
+function rosterOf(groupId: string): WaitingEvent {
+  return { type: "waiting", members: snapshotRoster(groupId) };
 }
 
 // 위치 보고(탭 전환·하트비트). 새 멤버이거나 위치가 바뀐 경우에만 브로드캐스트한다.

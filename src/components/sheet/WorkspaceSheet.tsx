@@ -49,6 +49,32 @@ export function WorkspaceSheet({
     applySavedTabName();
   }, []);
 
+  // 워크스페이스 전역 명령 수신 — 방장이 나를 다른 시트로 옮기면 즉시 해당 탭으로 전환.
+  // 어느 탭에 있든 항상 연결되어 있어야 하므로 워크스페이스 레벨에서 구독한다.
+  useEffect(() => {
+    const es = new EventSource("/api/workspace/stream");
+    es.onmessage = (e) => {
+      if (!e.data) return;
+      try {
+        const ev = JSON.parse(e.data) as {
+          type: string;
+          memberId?: string;
+          location?: string;
+        };
+        if (ev.type === "move" && ev.memberId === memberId && ev.location) {
+          const target = ev.location;
+          if (TABS.some((t) => t.id === target)) setActiveTabId(target);
+        }
+      } catch {
+        /* ignore */
+      }
+    };
+    es.onerror = () => {
+      /* EventSource 자동 재연결 */
+    };
+    return () => es.close();
+  }, [memberId]);
+
   // 게임 로비에서 30초 무입력 → 대기방 탭으로 자동 이동.
   // 탭 전환으로 게임 컴포넌트가 언마운트되면 SSE 구독이 끊겨 로비에서도 빠진다.
   const goWaiting = useCallback(() => {
@@ -85,6 +111,7 @@ export function WorkspaceSheet({
       tabs={TABS}
       activeTabId={activeTabId}
       onTabChange={setActiveTabId}
+      myMemberId={memberId}
       onLeave={onLeave}
       chat={<ChatButton myMemberId={memberId} myNickname={nickname} />}
       rightUser={

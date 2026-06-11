@@ -29,6 +29,7 @@ import {
   Star,
   Trash2,
   Undo2,
+  Users,
   Video,
 } from "lucide-react";
 
@@ -54,6 +55,7 @@ type Props = {
   tabs: SheetTab[];
   activeTabId: string;
   onTabChange: (id: string) => void;
+  myMemberId?: string;
   rightUser?: ReactNode;
   chat?: ReactNode;
   onLeave?: () => void;
@@ -71,6 +73,7 @@ export function SheetShell({
   tabs,
   activeTabId,
   onTabChange,
+  myMemberId,
   rightUser,
   chat,
   onLeave,
@@ -103,6 +106,8 @@ export function SheetShell({
     <div className="flex flex-col h-dvh">
       <HeaderBar
         title={title}
+        tabs={tabs}
+        myMemberId={myMemberId}
         rightUser={rightUser}
         chat={chat}
         onLeave={onLeave}
@@ -118,11 +123,15 @@ export function SheetShell({
 
 function HeaderBar({
   title,
+  tabs,
+  myMemberId,
   rightUser,
   chat,
   onLeave,
 }: {
   title: string;
+  tabs: SheetTab[];
+  myMemberId?: string;
   rightUser?: ReactNode;
   chat?: ReactNode;
   onLeave?: () => void;
@@ -179,7 +188,7 @@ function HeaderBar({
       >
         <Video size={16} />
       </button>
-      <ShareButton />
+      <ShareButton tabs={tabs} myMemberId={myMemberId} />
       {rightUser}
       {onLeave && (
         <button
@@ -206,9 +215,21 @@ type GroupInfo = {
   isOwner: boolean;
 };
 
+type RosterMember = {
+  memberId: string;
+  nickname: string;
+  location: string;
+};
+
 // 툴바의 공유 버튼: 누르면 시트 코드와 초대 링크를 보여주고 복사할 수 있는 팝업을 연다.
-// 방장(생성자)에게는 방 폭파 버튼도 노출한다.
-function ShareButton() {
+// 방장(생성자)에게는 접속자 명단(현재 어느 방인지) + 강제 이동, 방 폭파 버튼도 노출한다.
+function ShareButton({
+  tabs,
+  myMemberId,
+}: {
+  tabs: SheetTab[];
+  myMemberId?: string;
+}) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [info, setInfo] = useState<GroupInfo | null>(null);
@@ -218,6 +239,8 @@ function ShareButton() {
   const [confirmDestroy, setConfirmDestroy] = useState(false);
   const [destroying, setDestroying] = useState(false);
   const [destroyError, setDestroyError] = useState(false);
+  const [roster, setRoster] = useState<RosterMember[]>([]);
+  const [movingId, setMovingId] = useState<string | null>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
 
   // 팝업이 열릴 때 그룹 정보를 한 번만 불러온다.
@@ -231,6 +254,47 @@ function ShareButton() {
       .catch(() => setError(true))
       .finally(() => setLoading(false));
   }, [open, info, loading]);
+
+  // 방장이 팝업을 열고 있는 동안 접속자 명단을 주기적으로 갱신한다(2초).
+  useEffect(() => {
+    if (!open || !info?.isOwner) return;
+    let alive = true;
+    const load = () => {
+      fetch("/api/waiting/roster")
+        .then((res) => (res.ok ? res.json() : Promise.reject(res)))
+        .then((data: { members: RosterMember[] }) => {
+          if (alive) setRoster(data.members);
+        })
+        .catch(() => undefined);
+    };
+    load();
+    const id = setInterval(load, 2000);
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
+  }, [open, info?.isOwner]);
+
+  // 탭 ID → 표시 라벨(없으면 "이동 중").
+  const tabLabel = (id: string) =>
+    tabs.find((t) => t.id === id)?.label ?? "이동 중";
+
+  // 방장: 대상 멤버를 지정한 시트(탭)로 강제 이동.
+  async function moveMember(memberId: string, location: string) {
+    setMovingId(memberId);
+    try {
+      await fetch("/api/workspace/move", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ memberId, location }),
+      });
+      // 명단은 다음 폴링에서 갱신된다(대상이 이동을 반영해 위치 재보고).
+    } catch {
+      /* ignore */
+    } finally {
+      setMovingId(null);
+    }
+  }
 
   // 팝업을 닫으면서 폭파 확인 단계도 초기화한다.
   function close() {
@@ -331,6 +395,72 @@ function ShareButton() {
                 copied={copied === "link"}
                 onCopy={() => copy(inviteLink, "link")}
               />
+
+              {info.isOwner && (
+                <div className="mt-1 pt-3 border-t border-[var(--sheet-border)]">
+                  <div className="flex items-center gap-1.5 mb-2 text-[12px] text-[var(--sheet-muted)]">
+                    <Users size={13} />
+                    참가자 (접속 중 {roster.length}명)
+                  </div>
+                  {roster.length === 0 ? (
+                    <div className="text-[12px] text-[var(--sheet-muted)] py-1">
+                      접속 중인 참가자가 없어요.
+                    </div>
+                  ) : (
+                    <div className="flex flex-col gap-1.5 max-h-[200px] overflow-auto">
+                      {roster.map((m) => {
+                        const isMe = m.memberId === myMemberId;
+                        return (
+                          <div
+                            key={m.memberId}
+                            className="flex items-center gap-2 text-[13px]"
+                          >
+                            <span className="flex-1 min-w-0 truncate">
+                              {m.nickname}
+                              {isMe && (
+                                <span className="text-[var(--sheet-muted)]">
+                                  {" "}
+                                  (나)
+                                </span>
+                              )}
+                            </span>
+                            {isMe ? (
+                              <span className="shrink-0 text-[12px] text-[var(--sheet-muted)]">
+                                {tabLabel(m.location)}
+                              </span>
+                            ) : (
+                              <select
+                                value={
+                                  tabs.some((t) => t.id === m.location)
+                                    ? m.location
+                                    : ""
+                                }
+                                disabled={movingId === m.memberId}
+                                onChange={(e) =>
+                                  moveMember(m.memberId, e.target.value)
+                                }
+                                className="shrink-0 max-w-[120px] border border-[var(--sheet-border)] rounded px-1.5 py-1 text-[12px] bg-white text-[var(--sheet-fg)] focus:outline-none focus:border-[var(--sheet-active)] disabled:opacity-60"
+                                title="이 참가자를 다른 방으로 이동"
+                              >
+                                {!tabs.some((t) => t.id === m.location) && (
+                                  <option value="" disabled>
+                                    이동 중
+                                  </option>
+                                )}
+                                {tabs.map((t) => (
+                                  <option key={t.id} value={t.id}>
+                                    {t.label}
+                                  </option>
+                                ))}
+                              </select>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
 
               {info.isOwner && (
                 <div className="mt-1 pt-3 border-t border-[var(--sheet-border)]">

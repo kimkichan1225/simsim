@@ -8,6 +8,7 @@ import { destroyGroupSutda } from "@/lib/sutda";
 import { destroyGroupTetris } from "@/lib/tetris";
 import { destroyGroupChat } from "@/lib/chat";
 import { destroyGroupWaiting } from "@/lib/waiting";
+import { destroyGroupControl } from "@/lib/workspace-control";
 import {
   clearSessionCookie,
   getCurrentMember,
@@ -37,6 +38,7 @@ export async function POST() {
     destroyGroupTetris(me.groupId);
     destroyGroupChat(me.groupId);
     destroyGroupWaiting(me.groupId);
+    destroyGroupControl(me.groupId);
   } catch (e) {
     console.error("group destroy failed", e);
     return NextResponse.json({ error: "destroy_failed" }, { status: 500 });
