@@ -557,19 +557,20 @@ function Board({
 
   return (
     <div className="border border-[var(--sheet-cell-border)] bg-white select-none">
-      {/* 열 머리글 (A~H) — 시트 위장 */}
+      {/* 열·행 머리글 — 시점(flip)에 맞춰 실제 파일(A~H)·랭크(1~8)를 가리킨다.
+          흑 시점은 보드를 180° 뒤집으므로 라벨도 함께 뒤집어야 좌표가 어긋나지 않는다. */}
       <div className="flex bg-[var(--sheet-header-bg)] border-b border-[var(--sheet-cell-border)]">
         <div
           className="border-r border-[var(--sheet-cell-border)]"
           style={{ width: 24, height: 20 }}
         />
-        {COL_LETTERS.map((l) => (
+        {Array.from({ length: SIZE }).map((_, dc) => (
           <div
-            key={l}
+            key={dc}
             style={{ width: 46, height: 20 }}
             className="border-r border-[var(--sheet-cell-border)] grid place-items-center text-[11px] text-[var(--sheet-muted)]"
           >
-            {l}
+            {COL_LETTERS[flip ? SIZE - 1 - dc : dc]}
           </div>
         ))}
       </div>
@@ -579,7 +580,7 @@ function Board({
             style={{ width: 24, height: 46 }}
             className="bg-[var(--sheet-header-bg)] border-r border-b border-[var(--sheet-cell-border)] grid place-items-center text-[11px] text-[var(--sheet-muted)]"
           >
-            {dr + 1}
+            {flip ? dr + 1 : SIZE - dr}
           </div>
           {Array.from({ length: SIZE }).map((_, dc) => {
             const realIdx = order[dr * SIZE + dc];
