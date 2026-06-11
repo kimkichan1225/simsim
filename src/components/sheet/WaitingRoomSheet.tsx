@@ -21,7 +21,7 @@ const LOCATION_LABEL: Record<string, string> = {
   tetris: "테트리스",
   apple: "사과게임",
   omok: "오목",
-  checkers: "체커",
+  chess: "체스",
   rummy: "루미큐브",
   sutda: "섯다",
   leaderboard: "점수판",

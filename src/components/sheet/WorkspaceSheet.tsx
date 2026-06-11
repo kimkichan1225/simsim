@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { ActivityTab } from "@/components/activity/ActivityTab";
 import { ChatButton } from "@/components/chat/ChatButton";
 import { AppleGame } from "@/components/game/AppleGame";
-import { CheckersGame } from "@/components/game/CheckersGame";
+import { ChessGame } from "@/components/game/ChessGame";
 import { OmokGame } from "@/components/game/OmokGame";
 import { RummyGame } from "@/components/game/RummyGame";
 import { SutdaGame } from "@/components/game/SutdaGame";
@@ -20,7 +20,7 @@ const TABS: SheetTab[] = [
   { id: "tetris", label: "테트리스" },
   { id: "apple", label: "사과게임" },
   { id: "omok", label: "오목" },
-  { id: "checkers", label: "체커" },
+  { id: "chess", label: "체스" },
   { id: "rummy", label: "루미큐브" },
   { id: "sutda", label: "섯다" },
   { id: "leaderboard", label: "점수판" },
@@ -127,9 +127,9 @@ export function WorkspaceSheet({
           />
         </div>
       )}
-      {activeTabId === "checkers" && (
+      {activeTabId === "chess" && (
         <div className="px-6">
-          <CheckersGame
+          <ChessGame
             myMemberId={memberId}
             myNickname={nickname}
             isOwner={isOwner}

@@ -1,19 +1,16 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { consumeToken, type RateLimitConfig } from "@/lib/rate-limit";
-import { CHECKERS_SIZE, applyMove } from "@/lib/checkers";
+import { setLobbyReady } from "@/lib/chess";
 import { getCurrentMember } from "@/server/auth";
 
-// 멀티 점프는 한 수씩 연속 호출되므로 단순 이동보다 여유를 둔다
-const RATE_CHECKERS_MOVE: RateLimitConfig = {
-  capacity: 20,
-  refillPerSec: 4,
+const RATE_CHESS_READY: RateLimitConfig = {
+  capacity: 10,
+  refillPerSec: 2,
 };
 
-const CELLS = CHECKERS_SIZE * CHECKERS_SIZE;
 const Body = z.object({
-  from: z.number().int().min(0).max(CELLS - 1),
-  to: z.number().int().min(0).max(CELLS - 1),
+  ready: z.boolean(),
 });
 
 async function readJson(request: Request): Promise<unknown> {
@@ -29,7 +26,7 @@ export async function POST(request: Request) {
   if (!me) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
-  if (!consumeToken(`checkers-move:${me.memberId}`, RATE_CHECKERS_MOVE)) {
+  if (!consumeToken(`chess-ready:${me.memberId}`, RATE_CHESS_READY)) {
     return NextResponse.json({ error: "rate_limited" }, { status: 429 });
   }
 
@@ -42,14 +39,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "invalid_input" }, { status: 400 });
   }
 
-  const result = applyMove({
-    groupId: me.groupId,
-    memberId: me.memberId,
-    from: parsed.data.from,
-    to: parsed.data.to,
-  });
-  if (!result.ok) {
-    return NextResponse.json({ error: result.reason }, { status: 400 });
-  }
-  return NextResponse.json({ ok: true, win: result.win });
+  setLobbyReady(me.groupId, me.memberId, parsed.data.ready);
+  return NextResponse.json({ ok: true });
 }

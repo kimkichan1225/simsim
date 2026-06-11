@@ -1,10 +1,10 @@
-import { registerSubscriber } from "@/lib/checkers";
+import { registerSubscriber } from "@/lib/chess";
 import { sseResponse } from "@/lib/sse-route";
 import { getCurrentMember, isGroupOwner } from "@/server/auth";
 
 export const dynamic = "force-dynamic";
 
-// 체커 전용 SSE — 공용 sseResponse 팩토리로 스트림/ping/cleanup을 처리한다.
+// 체스 전용 SSE — 공용 sseResponse 팩토리로 스트림/ping/cleanup을 처리한다.
 export async function GET(request: Request) {
   const me = await getCurrentMember();
   if (!me) {

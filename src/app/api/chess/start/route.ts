@@ -5,11 +5,11 @@ import {
   isAllReady,
   isAloneInLobby,
   startMatch,
-  type CheckersResult,
-} from "@/lib/checkers";
+  type ChessResult,
+} from "@/lib/chess";
 import { getCurrentMember, isGroupOwner } from "@/server/auth";
 
-const RATE_CHECKERS_START: RateLimitConfig = {
+const RATE_CHESS_START: RateLimitConfig = {
   capacity: 5,
   refillPerSec: 5 / 60,
 };
@@ -19,11 +19,11 @@ export async function POST() {
   if (!me) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
-  if (!consumeToken(`checkers-start:${me.memberId}`, RATE_CHECKERS_START)) {
+  if (!consumeToken(`chess-start:${me.memberId}`, RATE_CHESS_START)) {
     return NextResponse.json({ error: "rate_limited" }, { status: 429 });
   }
 
-  // 판 시작은 방장만. 체커는 1:1이라 혼자서는 시작할 수 없다.
+  // 판 시작은 방장만. 체스는 1:1이라 혼자서는 시작할 수 없다.
   if (!(await isGroupOwner(me.groupId, me.memberId))) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
@@ -38,7 +38,7 @@ export async function POST() {
     groupId: me.groupId,
     memberId: me.memberId,
     nickname: me.nickname,
-    onEnded: async (results: CheckersResult[], groupId: string) => {
+    onEnded: async (results: ChessResult[], groupId: string) => {
       if (results.length === 0) return;
       try {
         await prisma.$transaction(async (tx) => {
@@ -46,7 +46,7 @@ export async function POST() {
             data: results.map((r) => ({
               memberId: r.memberId,
               groupId,
-              game: "checkers",
+              game: "chess",
               score: r.score,
               rank: r.rank,
               totalParticipants: results.length,
@@ -59,7 +59,7 @@ export async function POST() {
               memberId: top.memberId,
               kind: "match_result",
               payload: JSON.stringify({
-                game: "checkers",
+                game: "chess",
                 topNickname: top.nickname,
                 topScore: top.score,
                 participants: results.length,
@@ -68,7 +68,7 @@ export async function POST() {
           });
         });
       } catch (e) {
-        console.error("checkers match result persist failed", e);
+        console.error("chess match result persist failed", e);
       }
     },
   });

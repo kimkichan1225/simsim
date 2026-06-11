@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import { consumeToken, type RateLimitConfig } from "@/lib/rate-limit";
-import { resign } from "@/lib/checkers";
+import { joinMatch } from "@/lib/chess";
 import { getCurrentMember } from "@/server/auth";
 
-const RATE_CHECKERS_RESIGN: RateLimitConfig = {
+const RATE_CHESS_JOIN: RateLimitConfig = {
   capacity: 5,
   refillPerSec: 1,
 };
@@ -13,16 +13,17 @@ export async function POST() {
   if (!me) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
-  if (!consumeToken(`checkers-resign:${me.memberId}`, RATE_CHECKERS_RESIGN)) {
+  if (!consumeToken(`chess-join:${me.memberId}`, RATE_CHESS_JOIN)) {
     return NextResponse.json({ error: "rate_limited" }, { status: 429 });
   }
 
-  const result = resign({
+  const result = joinMatch({
     groupId: me.groupId,
     memberId: me.memberId,
+    nickname: me.nickname,
   });
   if (!result.ok) {
     return NextResponse.json({ error: result.reason }, { status: 400 });
   }
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, color: result.color });
 }

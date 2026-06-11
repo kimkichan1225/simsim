@@ -78,7 +78,7 @@ model MatchResult {
   id                String   @id @default(cuid())
   memberId          String
   groupId           String
-  game              String   @default("word") // "word" | "tetris" | "apple" | "suika" | "omok" | "checkers" | "rummy"
+  game              String   @default("word") // "word" | "tetris" | "apple" | "suika" | "omok" | "chess" | "rummy"
   score             Int
   rank              Int
   totalParticipants Int

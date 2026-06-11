@@ -148,16 +148,16 @@ function describe(row: Row): string {
             ? "수박게임"
             : p?.game === "omok"
               ? "오목"
-              : p?.game === "checkers"
-                ? "체커"
+              : p?.game === "chess"
+                ? "체스"
                 : p?.game === "rummy"
                   ? "루미큐브"
                   : p?.game === "sutda"
                     ? "섯다"
                     : "단어줍기";
     if (!p) return "매치 종료";
-    // 오목·체커는 점수 개념이 없어 승자만 표기
-    if (p.game === "omok" || p.game === "checkers") {
+    // 오목·체스는 점수 개념이 없어 승자만 표기
+    if (p.game === "omok" || p.game === "chess") {
       return `${gameName} 대국 종료: ${p.topNickname ?? "-"} 승리`;
     }
     // 섯다는 손익(골드) 기준

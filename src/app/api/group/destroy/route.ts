@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { destroyGroupApple } from "@/lib/apple";
-import { destroyGroupCheckers } from "@/lib/checkers";
+import { destroyGroupChess } from "@/lib/chess";
 import { destroyGroupOmok } from "@/lib/omok";
 import { destroyGroupRummy } from "@/lib/rummy";
 import { destroyGroupSutda } from "@/lib/sutda";
@@ -30,7 +30,7 @@ export async function POST() {
     // 그룹 삭제 → 멤버/활동/기록 cascade 삭제. 이미 삭제됐어도 안전하도록 deleteMany 사용.
     await prisma.group.deleteMany({ where: { id: me.groupId } });
     destroyGroupApple(me.groupId);
-    destroyGroupCheckers(me.groupId);
+    destroyGroupChess(me.groupId);
     destroyGroupOmok(me.groupId);
     destroyGroupRummy(me.groupId);
     destroyGroupSutda(me.groupId);
