@@ -23,6 +23,7 @@ type Data = {
   tetris: GameData;
   apple: GameData;
   omok: GameData;
+  checkers: GameData;
   rummy: GameData;
   sutda: SutdaRow[];
 };
@@ -119,6 +120,8 @@ export function LeaderboardTab({ refreshKey }: { refreshKey: number }) {
       />
       {/* 오목은 1:1 전용 — 점수 없이 승/패만 표시 */}
       <ScoreTable title="⚫ 오목 — 대결" rows={data.omok.versus} mode="duel" />
+      {/* 체커도 1:1 전용 — 점수 없이 승/패만 표시 */}
+      <ScoreTable title="🔴 체커 — 대결" rows={data.checkers.versus} mode="duel" />
       {/* 루미큐브는 2~4인 대결 전용 — 점수는 승리 시 상대 잔여 합 */}
       <ScoreTable
         title="🟧 루미큐브 — 대결"

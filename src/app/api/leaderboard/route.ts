@@ -5,7 +5,7 @@ import { getCurrentMember } from "@/server/auth";
 const MAX_MEMBERS = 100;
 const MAX_RESULTS = 5000;
 
-type GameKey = "tetris" | "apple" | "omok" | "rummy";
+type GameKey = "tetris" | "apple" | "omok" | "checkers" | "rummy";
 type ModeKey = "solo" | "versus"; // 혼자(참가자 1명) | 대결(2명 이상)
 
 type Row = {
@@ -36,6 +36,7 @@ const KNOWN_GAMES: ReadonlySet<string> = new Set([
   "tetris",
   "apple",
   "omok",
+  "checkers",
   "rummy",
 ]);
 
@@ -71,6 +72,7 @@ export async function GET() {
     tetris: { solo: new Map(), versus: new Map() },
     apple: { solo: new Map(), versus: new Map() },
     omok: { solo: new Map(), versus: new Map() },
+    checkers: { solo: new Map(), versus: new Map() },
     rummy: { solo: new Map(), versus: new Map() },
   };
 
@@ -132,6 +134,11 @@ export async function GET() {
     omok: {
       solo: buildRows("omok", "solo"),
       versus: buildRows("omok", "versus"),
+    },
+    // 체커도 1:1 대결 전용 — versus만 의미 있다
+    checkers: {
+      solo: buildRows("checkers", "solo"),
+      versus: buildRows("checkers", "versus"),
     },
     // 루미큐브는 2~4인 대결 전용
     rummy: {
