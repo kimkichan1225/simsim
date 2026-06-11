@@ -2,15 +2,8 @@
 // 단어줍기/테트리스가 각자 인스턴스를 만들어 공용으로 사용한다.
 // presence 는 각 게임의 SSE 구독 = "지금 그 게임 탭에 있는 사람"으로 잡는다.
 //
-// 자리비움(대기방): 비방장 멤버가 IDLE_TIMEOUT_MS 동안 준비 입력이 없으면
-// away 처리되어 시작 조건(allReady/isAlone)에서 제외된다.
-// 클라이언트는 away 멤버에게 독립된 대기방 화면을 보여주고,
-// 준비 API 호출(어떤 값이든)로 즉시 로비에 복귀시킨다.
-
-// 비방장 멤버가 준비 입력 없이 이만큼 머물면 자리비움 처리한다.
-// 턴 무제한 보드게임(오목·루미큐브)에서 한 수 고민하거나 판이 끝난 뒤
-// 결과를 보며 잠시 머무는 시간을 감안해 넉넉히 둔다(짧으면 대기방으로 끌려감).
-export const IDLE_TIMEOUT_MS = 90_000;
+// (자리비움 자동 이동 기능 제거됨) 무입력으로 멤버를 away 처리하지 않는다.
+// away 필드/처리는 호환을 위해 남겨두되 항상 false 로 유지된다.
 
 export type LobbyMemberView = {
   memberId: string;
@@ -64,22 +57,10 @@ export class GroupLobby {
     r.idleTimers.clear();
   }
 
-  // 비방장 멤버가 준비 없이 머물면 IDLE_TIMEOUT_MS 후 자리비움 처리.
-  // 게임 진행 중이거나 이미 준비/자리비움이면 걸지 않는다.
-  private armIdleTimer(groupId: string, r: Room, memberId: string): void {
+  // 자리비움(대기방 자동 이동) 기능 제거: 무입력으로 멤버를 away 처리하지 않는다.
+  // 기존 타이머가 남아 있으면 정리만 하고, 새 타이머는 걸지 않는다.
+  private armIdleTimer(_groupId: string, r: Room, memberId: string): void {
     this.clearIdleTimer(r, memberId);
-    if (r.gameRunning) return;
-    const m = r.members.get(memberId);
-    if (!m || m.ready || m.away || memberId === r.ownerId) return;
-    const timer = setTimeout(() => {
-      r.idleTimers.delete(memberId);
-      const cur = r.members.get(memberId);
-      if (!cur || cur.ready || cur.away || r.gameRunning) return;
-      if (memberId === r.ownerId) return;
-      cur.away = true;
-      this.onIdleChange?.(groupId);
-    }, IDLE_TIMEOUT_MS);
-    r.idleTimers.set(memberId, timer);
   }
 
   // 접속(구독) 시 호출. 기존 준비/자리비움 상태는 유지한다(재연결 대비).
